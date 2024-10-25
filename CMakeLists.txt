@@ -3,6 +3,8 @@ project(netp-project)
 
 
 
+option(BUILD_SAMPLE "Build Samples" OFF)
+
 # externel build
 include(ExternalProject)
 
@@ -34,4 +36,7 @@ link_directories(
     )
 
 add_subdirectory(src)
+
+if(BUILD_SAMPLE)
 add_subdirectory(samples)
+endif()
