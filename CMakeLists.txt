@@ -1,9 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(netp-project)
 
-
-
-option(BUILD_SAMPLE "Build Samples" OFF)
+option(BUILD_SAMPLES "Build Samples" ON)
 
 # externel build
 include(ExternalProject)
@@ -39,8 +37,8 @@ add_custom_command(TARGET libeventcopy
     )
 
 include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/include  # libevent headers
-    ${CMAKE_CURRENT_SOURCE_DIR}/src  # libevent headers
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/include    # libevent headers
+    ${CMAKE_CURRENT_SOURCE_DIR}/src                     # netp headers
     )
 
 link_directories(
@@ -49,6 +47,6 @@ link_directories(
 
 add_subdirectory(src)
 
-if(BUILD_SAMPLE)
-add_subdirectory(samples)
+if(BUILD_SAMPLES)
+    add_subdirectory(samples)
 endif()
