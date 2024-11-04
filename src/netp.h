@@ -76,6 +76,7 @@ public:
 
     virtual HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventCallback *piConnectEvent) = 0;
     virtual HRESULT Start() = 0;
+    virtual HRESULT Stop() = 0;
 
 public:
 
@@ -86,6 +87,7 @@ public:
 
 
 } // @namespace netp
+
 
 
 #endif// _NETP_H_

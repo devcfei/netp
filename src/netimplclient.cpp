@@ -59,6 +59,14 @@ HRESULT ClientImpl::Start()
 
 
 
+HRESULT ClientImpl::Stop()
+{
+    HRESULT hr = S_OK;
+    event_base_loopbreak(base);
+    return hr;
+}
+
+
 DWORD WINAPI ClientImpl::WorkerThreadProc(LPVOID lpParam)
 {
     ClientImpl* pThis = (ClientImpl*)lpParam;

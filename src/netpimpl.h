@@ -230,6 +230,7 @@ public:
 
     HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventCallback *piConnectEvent);
     HRESULT Start();
+    HRESULT Stop();
 
 
 private:
