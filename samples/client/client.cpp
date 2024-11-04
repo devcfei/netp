@@ -8,7 +8,7 @@ using namespace std;
 
 #include <protocol.h>
 
-using netp::IEventCallback;
+using netp::IEventHandler;
 using netp::IConnection;
 using netp::IConnectionCallback;
 

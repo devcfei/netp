@@ -18,7 +18,7 @@ ServerImpl::~ServerImpl()
 
 
 
-HRESULT ServerImpl::Initialize(WORD Port, IEventCallback *piConnectEvent)
+HRESULT ServerImpl::Initialize(WORD Port, IEventHandler *piEventHander)
 {
     HRESULT hr = S_OK;
 
@@ -38,7 +38,7 @@ HRESULT ServerImpl::Initialize(WORD Port, IEventCallback *piConnectEvent)
     evthread_use_windows_threads();
 
     portnum_ = Port;
-    piEventCb_ = piConnectEvent;
+    piEventCb_ = piEventHander;
 
     return hr;
 }

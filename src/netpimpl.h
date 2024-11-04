@@ -160,7 +160,7 @@ public:
     ~ServerImpl();
 
 
-    HRESULT Initialize(WORD Port, IEventCallback *piConnectEvent);
+    HRESULT Initialize(WORD Port, IEventHandler *piEventHander);
     HRESULT Start();
 
 private:
@@ -190,7 +190,7 @@ private:
     static void conn_eventcb(struct bufferevent* bev, short events, void* user_data);
 
 
-    IEventCallback *piEventCb_;
+    IEventHandler *piEventCb_;
 
     
 
@@ -228,7 +228,7 @@ public:
     ~ClientImpl();
 
 
-    HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventCallback *piConnectEvent);
+    HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventHandler *piEventHander);
     HRESULT Start();
     HRESULT Stop();
 
@@ -256,7 +256,7 @@ private:
     static void conn_eventcb(struct bufferevent* bev, short events, void* user_data);
 
 
-    IEventCallback *piEventCb_;
+    IEventHandler *piEventCb_;
 
 private:
     void OnConnection(IConnection* pConn)

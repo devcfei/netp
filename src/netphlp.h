@@ -7,7 +7,7 @@ using netp::IClient;
 
 /// NetpServerImpl
 template <typename T, typename TS>
-class NetpServerImpl: public IEventCallback
+class NetpServerImpl: public IEventHandler
 {
 public:
     
@@ -58,7 +58,7 @@ public:
     }
 
 protected:
-    // IEventCallback
+    // IEventHandler
     virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam)
     {
         HRESULT hr = E_FAIL;
@@ -116,7 +116,7 @@ private:
 
 /// NetpClientImpl
 template <typename T, typename TS>
-class NetpClientImpl: public IEventCallback
+class NetpClientImpl: public IEventHandler
 {
 public:
     
@@ -172,7 +172,7 @@ public:
     }
 
 protected:
-    // IEventCallback
+    // IEventHandler
     virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam)
     {
         HRESULT hr = E_FAIL;

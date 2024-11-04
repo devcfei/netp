@@ -6,7 +6,7 @@ using namespace std;
 #include <netp.h>
 #include <netphlp.h>
 
-using netp::IEventCallback;
+using netp::IEventHandler;
 using netp::IConnection;
 using netp::IConnectionCallback;
 

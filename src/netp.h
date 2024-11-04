@@ -49,7 +49,7 @@ public:
 
 
 
-class IEventCallback
+class IEventHandler
 {
 public:
     virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam) = 0;
@@ -61,7 +61,7 @@ class IServer
 {
 public:
 
-    virtual HRESULT Initialize(WORD Port, IEventCallback *piConnectEvent) = 0;
+    virtual HRESULT Initialize(WORD Port, IEventHandler *piEventHander) = 0;
     virtual HRESULT Start() = 0;
 
 public:
@@ -74,7 +74,7 @@ class IClient
 {
 public:
 
-    virtual HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventCallback *piConnectEvent) = 0;
+    virtual HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventHandler *piEventHander) = 0;
     virtual HRESULT Start() = 0;
     virtual HRESULT Stop() = 0;
 

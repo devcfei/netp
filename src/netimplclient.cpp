@@ -15,7 +15,7 @@ ClientImpl::~ClientImpl()
 }
 
 
-HRESULT ClientImpl::Initialize(const CHAR* lpszIPAddr, WORD Port, IEventCallback *piConnectEvent)
+HRESULT ClientImpl::Initialize(const CHAR* lpszIPAddr, WORD Port, IEventHandler *piEventHander)
 {
     HRESULT hr = S_OK;
 
@@ -36,7 +36,7 @@ HRESULT ClientImpl::Initialize(const CHAR* lpszIPAddr, WORD Port, IEventCallback
 
     StringCchCopyA(ipaddr_,16,lpszIPAddr);
     portnum_ = Port;
-    piEventCb_ = piConnectEvent;
+    piEventCb_ = piEventHander;
 
     return hr;
 }
