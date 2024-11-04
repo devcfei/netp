@@ -9,3 +9,12 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
+
+
+
+# other
+build
+external
+lib
+install
+settings.json
