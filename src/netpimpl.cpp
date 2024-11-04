@@ -6,7 +6,7 @@
 
 
 
-HRESULT ConnectionImpl::SendData(BYTE* Packet, SIZE_T Length )
+HRESULT ConnectionImpl::SendPacket(BYTE* Packet, SIZE_T Length )
 {
     HRESULT hr = S_OK;
     
@@ -22,7 +22,7 @@ HRESULT ConnectionImpl::SendData(BYTE* Packet, SIZE_T Length )
 }
 
 
-HRESULT ConnectionImpl::SetConnectionCallback(IConnectionCallback* piConnectionCb)
+HRESULT ConnectionImpl::SetSession(ISession* piSession)
 {
     HRESULT hr = S_OK;
     if(piConnectionCb_)
@@ -31,7 +31,7 @@ HRESULT ConnectionImpl::SetConnectionCallback(IConnectionCallback* piConnectionC
         return hr;
     }
 
-    piConnectionCb_ = piConnectionCb;
+    piConnectionCb_ = piSession;
     
     return hr;
 }

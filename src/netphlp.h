@@ -52,7 +52,7 @@ public:
     {
         HRESULT hr = S_OK;
 
-        // TODO:
+        hr = piServer_->Stop();
 
         return hr;
     }
@@ -95,7 +95,7 @@ private:
             return hr;
         }
         
-        piConn->SetConnectionCallback(pSession);        
+        piConn->SetSession(pSession);        
         return hr;
     }
     
@@ -161,7 +161,7 @@ public:
     {
         HRESULT hr = S_OK;
 
-        // TODO:
+        hr = piClient_->Stop();
 
         return hr;
     }
@@ -207,7 +207,7 @@ private:
         }
         
         ptSession_ = pSession;
-        piConn->SetConnectionCallback(pSession);        
+        piConn->SetSession(pSession);        
         return hr;
     }
     

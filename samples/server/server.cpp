@@ -1,19 +1,23 @@
 #include <windows.h>
 #include <tchar.h>
+#include <strsafe.h>
 #include <initguid.h>
-#include <iostream>
+#include <iostream>  
+#include <string> 
+
+
 using namespace std;
 #include <netp.h>
 #include <netphlp.h>
 
 using netp::IEventHandler;
 using netp::IConnection;
-using netp::IConnectionCallback;
+using netp::ISession;
 
 #include <protocol.h>
 
 
-class ServerSession : public IConnectionCallback
+class ServerSession : public ISession
 {
 public:
     ServerSession(IConnection *piConnection)
@@ -23,22 +27,39 @@ public:
     ~ServerSession()
     {
     }
-    // netp::IConnectionCallback
+    // netp::ISession
     virtual HRESULT OnPacket(BYTE *Packet, SIZE_T Length)
     {
         PACKET_HEADER *pkt = reinterpret_cast<PACKET_HEADER *>(Packet);
 
         switch (pkt->command)
         {
-        case COMMAND_MESSAGE:
+        case COMMAND_LOGIN:
         {
-            CMD_MESSAGE *pCmdMessage = reinterpret_cast<CMD_MESSAGE *>(Packet);
-            std::cout << "ReceiveMessage:" << pCmdMessage->text << std::endl;
+            CMD_LOIGN *pCmdMessage = reinterpret_cast<CMD_LOIGN *>(Packet);
 
-            SendMsg("my name is world!");
+            StringCchCopyA(username_,32, pCmdMessage->username);
+            StringCchCopyA(password_,32, pCmdMessage->password);
+
+            std::cout << "COMMAND_LOGIN" <<std::endl;
+            CHAR text[64];
+            StringCchPrintfA(text,64,"%s login",username_);
+            SendMsg(text);
+
 
             break;
         }
+        case COMMAND_QUERY:
+        {
+            std::cout << "COMMAND_QUERY" <<std::endl;
+            CHAR text[64];
+            StringCchPrintfA(text,64,"username: %s password %s",username_, password_);
+            SendMsg(text);
+
+
+            break;
+        }
+
         default:
             std::cout << "unsupported command :" << pkt->command << std::endl;
 
@@ -62,9 +83,12 @@ private:
 
         strcpy(cmd.text,text);
 
-        return piConn_->SendData((BYTE*)&cmd,sizeof(cmd));
+        return piConn_->SendPacket((BYTE*)&cmd,sizeof(cmd));
         
     }
+
+    char username_[32];
+    char password_[32];  
 };
 
 
@@ -100,18 +124,54 @@ private:
 
 };
 
-int main()
+
+
+
+
+  
+Server server;
+
+// Function to process commands
+void processCommand(const std::string &command)
 {
-    HRESULT hr;
-
-    Server server;
-
-    hr = server.Initialize(4567);
-
-    hr = server.Start();
-
-    getchar();
-
-
-    return 1;
+    if (command == "start")
+    {
+        HRESULT hr;
+        hr = server.Initialize(4567);
+        hr = server.Start();
+    }
+    else if (command == "stop")
+    {
+        HRESULT hr;
+        hr = server.Stop();
+    }
+    else if (command == "help")
+    {
+        std::cout<< "command: start, stop ,help"<<std::endl;
+    }
+    else
+    {
+    }
 }
+
+int main() {  
+    std::cout << "console server" << std::endl;  
+    std::cout << "Type 'exit' the application." << std::endl;  
+  
+    std::string command;  
+    while (true) {  
+        // Prompt user for input  
+        std::cout << ">";  
+        std::getline(std::cin, command);  
+  
+        // Process the command  
+        processCommand(command);  
+  
+        // Exit the loop if the command is 'exit'  
+        if (command == "exit") {  
+            break;  
+        }  
+    }  
+  
+    return 0;  
+}  

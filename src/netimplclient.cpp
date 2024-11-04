@@ -145,7 +145,7 @@ void ClientImpl::conn_readcb(struct bufferevent* bev, void* user_data)
     size_t count = 0;
     DWORD* lenPacket = 0;
     void* buff = connection->getRecvBuffer();
-    IConnectionCallback* piSesion = connection->GetConnectionCallback();
+    ISession* piSesion = connection->GetSession();
     size_t last =sz;
     size_t plen =0;
     size_t plast =0;

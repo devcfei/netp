@@ -39,9 +39,9 @@ public:
         lambdaClose_=OnClose;
         return hr;      
     }
-    virtual HRESULT SetConnectionCallback(IConnectionCallback* piConnectionCb);
-    virtual IConnectionCallback* GetConnectionCallback() { return piConnectionCb_; }
-    virtual HRESULT SendData(BYTE* Packet, SIZE_T Length );
+    virtual HRESULT SetSession(ISession* piSession);
+    virtual ISession* GetSession() { return piConnectionCb_; }
+    virtual HRESULT SendPacket(BYTE* Packet, SIZE_T Length );
     // virtual HRESULT GetRemoteIP(char *ipaddr, SIZE_T size);
 
 
@@ -51,7 +51,7 @@ public:
 
 private:
     struct bufferevent* bev_;
-    IConnectionCallback* piConnectionCb_;
+    ISession* piConnectionCb_;
     BYTE *pRecvBuf_;
 
 protected:
@@ -162,6 +162,7 @@ public:
 
     HRESULT Initialize(WORD Port, IEventHandler *piEventHander);
     HRESULT Start();
+    HRESULT Stop();
 
 private:
     // tcp Port number

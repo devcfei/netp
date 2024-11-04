@@ -28,7 +28,7 @@ namespace netp
 {
 
 
-class IConnectionCallback
+class ISession
 {
 public:
     virtual HRESULT OnPacket(BYTE* Packet, SIZE_T Length) = 0;
@@ -39,9 +39,9 @@ public:
 class IConnection
 {
 public:
-    virtual HRESULT SetConnectionCallback(IConnectionCallback* piConnectionCb) = 0;
-    virtual IConnectionCallback* GetConnectionCallback() = 0;
-    virtual HRESULT SendData(BYTE* Packet, SIZE_T Length ) = 0;
+    virtual HRESULT SetSession(ISession* piSession) = 0;
+    virtual ISession* GetSession() = 0;
+    virtual HRESULT SendPacket(BYTE* Packet, SIZE_T Length ) = 0;
     virtual HRESULT GetRemoteIP(char *ipaddr, SIZE_T size) = 0;
 };
 
@@ -63,6 +63,7 @@ public:
 
     virtual HRESULT Initialize(WORD Port, IEventHandler *piEventHander) = 0;
     virtual HRESULT Start() = 0;
+    virtual HRESULT Stop() = 0;
 
 public:
 

@@ -61,6 +61,12 @@ HRESULT ServerImpl::Start()
 }
 
 
+HRESULT ServerImpl::Stop()
+{
+    HRESULT hr = S_OK;
+    event_base_loopbreak(base);
+    return hr;
+}
 
 
 
@@ -165,7 +171,7 @@ void ServerImpl::conn_readcb(struct bufferevent* bev, void* user_data)
     size_t count = 0;
     DWORD *lenPacket=0;
     void* buff=connection->getRecvBuffer();
-    IConnectionCallback* piSesion=connection->GetConnectionCallback();
+    ISession* piSesion=connection->GetSession();
 
     size_t last =sz;
     size_t plen =0;
