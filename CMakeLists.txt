@@ -25,6 +25,18 @@ ExternalProject_Add(libevent-2.1.12
     CMAKE_ARGS "${CMAKE_ARGS_LIBEVENT}"
     )
    
+add_custom_target(libeventcopy ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "Copy libevent libaries"  
+    )
+
+add_dependencies(libeventcopy libevent-2.1.12)
+add_custom_command(TARGET libeventcopy
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_INSTALL_PREFIX}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/event.lib ${CMAKE_INSTALL_PREFIX}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/event_core.lib ${CMAKE_INSTALL_PREFIX}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/event_extra.lib ${CMAKE_INSTALL_PREFIX}/lib
+    )
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/include  # libevent headers

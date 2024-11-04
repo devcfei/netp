@@ -8,7 +8,7 @@ aux_source_directory(. SRCS)
 
 
 add_library(netp STATIC ${SRCS})
-target_link_libraries(netp ws2_32 iphlpapi  event event_extra event_core)
+target_link_libraries(netp ws2_32 iphlpapi event event_extra event_core)
 add_dependencies(netp libevent-2.1.12 )
 
 set_target_properties(netp PROPERTIES  
