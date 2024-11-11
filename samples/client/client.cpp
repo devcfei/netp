@@ -5,21 +5,16 @@
 #include <netp.h>
 #include <netphlp.h>
 #include <iostream>
-#include <string> 
+#include <string>
 
 using namespace std;
 
 #include <protocol.h>
 
-using netp::IEventHandler;
-using netp::IConnection;
-using netp::ISession;
-
-
 class ClientSession : public ISession
 {
 public:
-    ClientSession(IConnection* piConnection)
+    ClientSession(IConnection *piConnection)
         : piConn_(piConnection)
     {
     }
@@ -28,10 +23,8 @@ public:
     {
     }
 
-
-
     // netp::ISession
-    virtual HRESULT OnPacket(BYTE* Packet, SIZE_T Length)
+    virtual HRESULT OnPacket(BYTE *Packet, SIZE_T Length)
     {
         PACKET_HEADER *pkt = reinterpret_cast<PACKET_HEADER *>(Packet);
 
@@ -45,24 +38,22 @@ public:
         }
         default:
             std::cout << "unsupported command :" << pkt->command << std::endl;
-
         }
         return S_OK;
     }
 
-    HRESULT Login(const char* name, const char* pwd)
+    HRESULT Login(const char *name, const char *pwd)
     {
         CMD_LOIGN cmd;
 
         cmd.hdr.length = sizeof(CMD_LOIGN);
         cmd.hdr.command = COMMAND_LOGIN;
 
-        StringCchCopyA(cmd.username,32,name);
-        StringCchCopyA(cmd.password,32,pwd);
+        StringCchCopyA(cmd.username, 32, name);
+        StringCchCopyA(cmd.password, 32, pwd);
 
-        return piConn_->SendPacket((BYTE*)&cmd,sizeof(cmd));        
+        return piConn_->SendPacket((BYTE *)&cmd, sizeof(cmd));
     }
-
 
     HRESULT Query()
     {
@@ -71,26 +62,21 @@ public:
         cmd.hdr.length = sizeof(CMD_QUERY);
         cmd.hdr.command = COMMAND_QUERY;
 
-        return piConn_->SendPacket((BYTE*)&cmd,sizeof(cmd));        
+        return piConn_->SendPacket((BYTE *)&cmd, sizeof(cmd));
     }
 
-
 private:
-    IConnection* piConn_;
-
+    IConnection *piConn_;
 };
-
 
 class Client : public NetpClientImpl<Client, ClientSession>
 {
 public:
     Client()
     {
-
     }
     ~Client()
     {
-
     }
 
     virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam)
@@ -104,7 +90,7 @@ public:
         case EVENT_NEW_CONNECTION:
 
             break;
-        
+
         default:
             break;
         }
@@ -114,7 +100,6 @@ public:
 
 private:
 };
-
 
 Client client;
 // Function to process commands
@@ -133,14 +118,13 @@ void processCommand(const std::string &command)
     }
     else if (command == "login")
     {
-        std::string username;  
+        std::string username;
         std::string password;
 
-        std::cout << "username:";  
-        std::getline(std::cin, username);  
-        std::cout << "password:";  
-        std::getline(std::cin, password);  
-
+        std::cout << "username:";
+        std::getline(std::cin, username);
+        std::cout << "password:";
+        std::getline(std::cin, password);
 
         client.GetSession()->Login(username.c_str(), password.c_str());
     }
@@ -150,31 +134,34 @@ void processCommand(const std::string &command)
     }
     else if (command == "help")
     {
-        std::cout<< "command: start, stop ,help"<<std::endl;
+        std::cout << "command: start, stop ,help" << std::endl;
     }
     else
     {
     }
 }
 
-int main() {  
-    std::cout << "console client" << std::endl;  
-    std::cout << "Type 'exit' the application." << std::endl;  
-  
-    std::string command;  
-    while (true) {  
-        // Prompt user for input  
-        std::cout << ">";  
-        std::getline(std::cin, command);  
-  
-        // Process the command  
-        processCommand(command);  
-  
-        // Exit the loop if the command is 'exit'  
-        if (command == "exit") {  
-            break;  
-        }  
-    }  
-  
-    return 0;  
-}  
+int main()
+{
+    std::cout << "console client" << std::endl;
+    std::cout << "Type 'exit' the application." << std::endl;
+
+    std::string command;
+    while (true)
+    {
+        // Prompt user for input
+        std::cout << ">";
+        std::getline(std::cin, command);
+
+        // Process the command
+        processCommand(command);
+
+        // Exit the loop if the command is 'exit'
+        if (command == "exit")
+        {
+            break;
+        }
+    }
+
+    return 0;
+}

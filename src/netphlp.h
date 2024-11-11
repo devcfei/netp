@@ -1,9 +1,15 @@
 #pragma once
 
 
+#if !defined(_NETP_H_)
+#error "include <netp.h> before netphlp.h 
+#endif
+
 using netp::IServer;
 using netp::IConnection;
 using netp::IClient;
+using netp::ISession;
+using netp::IEventHandler;
 
 /// NetpServerImpl
 template <typename T, typename TS>
