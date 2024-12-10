@@ -177,7 +177,7 @@ private:
 
 
     // libevent backend
-    struct event_base* base;
+    struct event_base* base = NULL;
     struct evconnlistener* listener;
     struct event* signal_event;
 
