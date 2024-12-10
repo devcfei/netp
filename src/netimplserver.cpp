@@ -64,7 +64,11 @@ HRESULT ServerImpl::Start()
 HRESULT ServerImpl::Stop()
 {
     HRESULT hr = S_OK;
-    event_base_loopbreak(base);
+    if(base)
+    {
+        event_base_loopbreak(base);
+        base=NULL;
+    }
     return hr;
 }
 
