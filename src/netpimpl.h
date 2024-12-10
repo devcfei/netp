@@ -248,7 +248,7 @@ private:
 
 
     // libevent backend
-    struct event_base* base;
+    struct event_base* base = NULL;
 	struct bufferevent* bev = NULL;
 
 
