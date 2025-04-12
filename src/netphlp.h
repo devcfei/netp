@@ -108,6 +108,8 @@ private:
     HRESULT OnConnectionCose(IConnection *piConn)
     {
         HRESULT hr = S_OK;
+        TS* pSession = reinterpret_cast<TS*>(piConn->GetSession());
+        delete pSession;
         return hr;
     }
 
@@ -220,6 +222,8 @@ private:
     HRESULT OnConnectionCose(IConnection *piConn)
     {
         HRESULT hr = S_OK;
+        TS* pSession = reinterpret_cast<TS*>(piConn->GetSession());
+        delete pSession;
         return hr;
     }
 
