@@ -7,13 +7,13 @@ namespace netp {
 namespace impl {
 
 ServerImpl::ServerImpl()
-    : base_(event_base_new(), event_base_free)
+    : base_(nullptr, event_base_free)
     , listener_(nullptr, evconnlistener_free)
     , running_(false)
     , port_(0)
 {
 #ifdef _WIN32
-    // Initialize WinSock
+    // Initialize WinSock first
     WinSockInitializer::ensureInitialized();
     
     // Initialize libevent for Windows threads
@@ -21,8 +21,13 @@ ServerImpl::ServerImpl()
         std::cerr << "[Server] Failed to initialize libevent thread support" << std::endl;
         throw std::runtime_error("Failed to initialize libevent thread support");
     }
-    std::cout << "[Server] Initialized libevent thread support" << std::endl;
 #endif
+
+    // Now create the event base after WinSock is initialized
+    base_.reset(event_base_new());
+    if (!base_) {
+        throw std::runtime_error("Failed to create event base");
+    }
 }
 
 ServerImpl::~ServerImpl() {
