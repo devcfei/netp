@@ -6,15 +6,6 @@
 namespace netp {
 namespace impl {
 
-// Network byte order conversion
-uint32_t htonl(uint32_t hostlong) {
-    return ::htonl(hostlong);
-}
-
-uint32_t ntohl(uint32_t netlong) {
-    return ::ntohl(netlong);
-}
-
 // PacketFramer implementation
 std::vector<std::vector<uint8_t>> PacketFramer::processData(const uint8_t* data, size_t length) {
     std::vector<std::vector<uint8_t>> packets;
@@ -28,7 +19,6 @@ std::vector<std::vector<uint8_t>> PacketFramer::processData(const uint8_t* data,
         // Read header
         PacketHeader header;
         std::memcpy(&header.data_length, buffer_.data(), HEADER_SIZE);
-        header.data_length = ntohl(header.data_length);
         std::cout << "[PacketFramer] Processing packet with header length: " << header.data_length << std::endl;
         
         // Check if we have a complete packet
@@ -61,7 +51,6 @@ std::vector<uint8_t> PacketFramer::framePacket(const std::vector<uint8_t>& data)
     // Write header
     uint32_t length = static_cast<uint32_t>(data.size());
     std::cout << "[PacketFramer] Framing packet with data size: " << length << std::endl;
-    length = htonl(length);
     std::memcpy(framed_data.data(), &length, HEADER_SIZE);
     
     // Write data

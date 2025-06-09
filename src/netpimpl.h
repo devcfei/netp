@@ -76,10 +76,6 @@ using EventBasePtr = std::unique_ptr<event_base, decltype(&event_base_free)>;
 using BufferEventPtr = std::unique_ptr<bufferevent, decltype(&bufferevent_free)>;
 using ListenerPtr = std::unique_ptr<evconnlistener, decltype(&evconnlistener_free)>;
 
-// Network byte order conversion
-uint32_t htonl(uint32_t hostlong);
-uint32_t ntohl(uint32_t netlong);
-
 // Connection implementation
 class ConnectionImpl : public Connection {
 public:
