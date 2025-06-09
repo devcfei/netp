@@ -76,17 +76,13 @@ void runClient() {
         
         auto conn = client->getConnection();
 
-        // Track number of responses received
-        std::atomic<size_t> responses_received{0};
-
         // Set up packet handler
-        conn->setPacketHandler([&responses_received](const std::vector<uint8_t>& data) {
+        conn->setPacketHandler([](const std::vector<uint8_t>& data) {
             log("Client received raw data of size: " + std::to_string(data.size()));
             
             EchoPacket packet;
             if (packet.deserialize(data.data(), data.size())) {
                 log("Client received echo: " + packet.getMessage());
-                responses_received++;
             } else {
                 log("Client failed to deserialize response packet! Raw data size: " + std::to_string(data.size()));
             }
@@ -102,49 +98,32 @@ void runClient() {
             log("Disconnected from server");
         });
 
-        // Send test messages
-        std::vector<std::string> messages = {
-            "Hello, server!",
-            "How are you?",
-            "Testing packet communication",
-            "Goodbye!"
-        };
+        log("Type your messages (type 'quit' to exit):");
         
-        size_t total_messages = messages.size();
-        log("Client will send " + std::to_string(total_messages) + " messages");
-        
-        for (const auto& msg : messages) {
-            EchoPacket packet(msg);
-            auto serialized = packet.serialize();
-            log("Sending message '" + msg + "' (serialized size: " + std::to_string(serialized.size()) + " bytes)");
+        std::string input;
+        while (true) {
+            std::cout << "> ";
+            std::getline(std::cin, input);
             
-            if (conn->sendPacket(packet)) {
-                log("Client sent: " + msg);
-            } else {
-                log("Client failed to send: " + msg);
-            }
-            // Wait a bit longer between messages to ensure proper handling
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        }
-        
-        // Wait for all responses with a timeout
-        log("Waiting for responses...");
-        auto start_time = std::chrono::steady_clock::now();
-        while (responses_received < total_messages) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            
-            // Timeout after 10 seconds
-            auto elapsed = std::chrono::steady_clock::now() - start_time;
-            if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= 10) {
-                log("Timeout waiting for responses. Received " + 
-                    std::to_string(responses_received) + " out of " + 
-                    std::to_string(total_messages) + " responses.");
+            if (input == "quit") {
+                log("Closing client...");
                 break;
             }
+            
+            if (!input.empty()) {
+                EchoPacket packet(input);
+                if (conn->sendPacket(packet)) {
+                    log("Client sent: " + input);
+                } else {
+                    log("Client failed to send: " + input);
+                }
+            }
+            
+            // Small delay to prevent flooding
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         
-        // Wait a bit before disconnecting to ensure last messages are processed
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        // Clean disconnect
         client->disconnect();
     } else {
         log("Failed to connect to server");
