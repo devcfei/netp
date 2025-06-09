@@ -24,21 +24,27 @@ public:
     }
 
     // netp::ISession
-    virtual HRESULT OnPacket(BYTE *Packet, SIZE_T Length)
+    virtual HRESULT OnPacket(const BYTE *Packet, SIZE_T Length)
     {
-        PACKET_HEADER *pkt = reinterpret_cast<PACKET_HEADER *>(Packet);
+        const PACKET_HEADER *pkt = reinterpret_cast<const PACKET_HEADER *>(Packet);
 
         switch (pkt->command)
         {
         case COMMAND_MESSAGE:
         {
-            CMD_MESSAGE *pCmdMessage = reinterpret_cast<CMD_MESSAGE *>(Packet);
+            const CMD_MESSAGE *pCmdMessage = reinterpret_cast<const CMD_MESSAGE *>(Packet);
             std::cout << pCmdMessage->text << std::endl;
             break;
         }
         default:
             std::cout << "unsupported command :" << pkt->command << std::endl;
         }
+        return S_OK;
+    }
+
+    virtual HRESULT OnError(NETP_ERROR_CODE ErrorCode, LPCSTR ErrorMessage)
+    {
+        std::cout << "OnError: " << ErrorCode << " " << ErrorMessage << std::endl;
         return S_OK;
     }
 
@@ -79,42 +85,69 @@ public:
     {
     }
 
-    virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam)
+    HRESULT OnConnected(IConnection* piConn)
     {
-        HRESULT hr = S_OK;
-
-        hr = NetpClientImpl<Client, ClientSession>::OnEvent(eEventId, ulParam);
-
-        switch (eEventId)
-        {
-        case EVENT_NEW_CONNECTION:
-
-            break;
-
-        default:
-            break;
-        }
-
-        return hr;
+        std::cout << "Connected to server!" << std::endl;
+        return S_OK;
     }
 
-private:
+    HRESULT OnDisconnected(IConnection* piConn)
+    {
+        std::cout << "Disconnected from server!" << std::endl;
+        return S_OK;
+    }
+
+
+
+    HRESULT OnCustomEvent(NETP_EVENT_ID eEventId, 
+                         ULONG_PTR ulParam,
+                         NETP_ERROR_CODE errorCode,
+                         LPCSTR errorMessage)
+    {
+        return S_OK;
+    }
 };
 
 Client client;
+
 // Function to process commands
-void processCommand(const std::string &command)
+void processCommand(const std::string& command)
 {
     if (command == "start")
     {
         HRESULT hr;
-        hr = client.Initialize("127.0.0.1", 4567);
-        hr = client.Start();
+        NETP_CLIENT_CONFIG config = {0};
+        StringCchCopyA(config.ipAddress, sizeof(config.ipAddress), "127.0.0.1");
+        config.port = 4567;
+        config.sendBufferSize = 65536;
+        config.recvBufferSize = 65536;
+        config.tcpNoDelay = TRUE;
+        config.keepAlive.enabled = TRUE;
+        config.keepAlive.idleTime = 60000;  // 60 seconds
+        config.keepAlive.interval = 1000;   // 1 second
+        config.connectTimeout = 5000;       // 5 seconds
+
+        hr = client.Initialize(&config);
+        if (SUCCEEDED(hr))
+        {
+            hr = client.Start();
+            if (FAILED(hr))
+            {
+                std::cout << "Failed to start client" << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "Failed to initialize client" << std::endl;
+        }
     }
     else if (command == "stop")
     {
-        HRESULT hr;
-        hr = client.Stop();
+        HRESULT hr = client.Stop();
+        if (FAILED(hr))
+        {
+            std::cout << "Failed to stop client" << std::endl;
+        }
     }
     else if (command == "login")
     {
@@ -126,18 +159,37 @@ void processCommand(const std::string &command)
         std::cout << "password:";
         std::getline(std::cin, password);
 
-        client.GetSession()->Login(username.c_str(), password.c_str());
+        ClientSession* pSession = client.GetSession();
+        if (pSession)
+        {
+            pSession->Login(username.c_str(), password.c_str());
+        }
+        else
+        {
+            std::cout << "Not connected to server" << std::endl;
+        }
     }
     else if (command == "query")
     {
-        client.GetSession()->Query();
+        ClientSession* pSession = client.GetSession();
+        if (pSession)
+        {
+            pSession->Query();
+        }
+        else
+        {
+            std::cout << "Not connected to server" << std::endl;
+        }
     }
     else if (command == "help")
     {
-        std::cout << "command: start, stop ,help" << std::endl;
-    }
-    else
-    {
+        std::cout << "Commands available:" << std::endl;
+        std::cout << "  start  - Connect to server" << std::endl;
+        std::cout << "  stop   - Disconnect from server" << std::endl;
+        std::cout << "  login  - Login to server" << std::endl;
+        std::cout << "  query  - Query server" << std::endl;
+        std::cout << "  help   - Show this help" << std::endl;
+        std::cout << "  exit   - Exit application" << std::endl;
     }
 }
 

@@ -15,28 +15,24 @@ ClientImpl::~ClientImpl()
 }
 
 
-HRESULT ClientImpl::Initialize(const CHAR* lpszIPAddr, WORD Port, IEventHandler *piEventHander)
+HRESULT ClientImpl::Initialize(const NETP_CLIENT_CONFIG* pConfig, IEventHandler* piEventHandler)
 {
     HRESULT hr = S_OK;
 
     // WSAStartup
     WSADATA wsaData;
     if ((WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0) {
-
-        HRESULT hr;
         hr = HRESULT_FROM_WIN32(GetLastError());
         LOGF(_T("WSAStartup failed! hr = %08X\n"), hr);
-
-        hr = E_FAIL;
         return hr;
     }
 
     
     evthread_use_windows_threads();
 
-    StringCchCopyA(ipaddr_,16,lpszIPAddr);
-    portnum_ = Port;
-    piEventCb_ = piEventHander;
+    StringCchCopyA(ipaddr_, sizeof(ipaddr_), pConfig->ipAddress);
+    portnum_ = pConfig->port;
+    piEventCb_ = piEventHandler;
 
     return hr;
 }

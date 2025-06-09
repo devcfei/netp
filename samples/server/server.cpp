@@ -22,15 +22,15 @@ public:
     {
     }
     // netp::ISession
-    virtual HRESULT OnPacket(BYTE *Packet, SIZE_T Length)
+    virtual HRESULT OnPacket(const BYTE *Packet, SIZE_T Length)
     {
-        PACKET_HEADER *pkt = reinterpret_cast<PACKET_HEADER *>(Packet);
+        const PACKET_HEADER *pkt = reinterpret_cast<const PACKET_HEADER *>(Packet);
 
         switch (pkt->command)
         {
         case COMMAND_LOGIN:
         {
-            CMD_LOIGN *pCmdMessage = reinterpret_cast<CMD_LOIGN *>(Packet);
+            const CMD_LOIGN *pCmdMessage = reinterpret_cast<const CMD_LOIGN *>(Packet);
 
             StringCchCopyA(username_, 32, pCmdMessage->username);
             StringCchCopyA(password_, 32, pCmdMessage->password);
@@ -58,6 +58,13 @@ public:
 
         return S_OK;
     }
+
+    HRESULT OnError(NETP_ERROR_CODE ErrorCode, LPCSTR ErrorMessage)
+    {
+        std::cout << "OnError: " << ErrorCode << " " << ErrorMessage << std::endl;
+        return S_OK;
+    }
+
 
 private:
     IConnection *piConn_;
@@ -88,49 +95,91 @@ public:
     {
     }
 
-    virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam)
+    HRESULT OnClientConnected(IConnection* piConn)
     {
-        HRESULT hr = S_OK;
-        hr = NetpServerImpl<Server, ServerSession>::OnEvent(eEventId, ulParam);
-
-        switch (eEventId)
-        {
-        case EVENT_NEW_CONNECTION:
-            std::cout << "new connection!" << std::endl;
-            break;
-
-        default:
-            break;
-        }
-
-        return hr;
+        char ipaddr[46];
+        piConn->GetRemoteIP(ipaddr, sizeof(ipaddr));
+        std::cout << "New client connected from " << ipaddr << std::endl;
+        return S_OK;
     }
 
-private:
+    HRESULT OnClientDisconnected(IConnection* piConn)
+    {
+        std::cout << "Client disconnected" << std::endl;
+        return S_OK;
+    }
+
+    HRESULT OnServerError(NETP_ERROR_CODE errorCode, LPCSTR errorMessage)
+    {
+        std::cout << "Server error: " << errorMessage << std::endl;
+        return S_OK;
+    }
+
+    HRESULT OnCustomEvent(NETP_EVENT_ID eEventId, 
+                         ULONG_PTR ulParam,
+                         NETP_ERROR_CODE errorCode,
+                         LPCSTR errorMessage)
+    {
+        return S_OK;
+    }
 };
 
 Server server;
 
 // Function to process commands
-void processCommand(const std::string &command)
+void processCommand(const std::string& command)
 {
     if (command == "start")
     {
         HRESULT hr;
-        hr = server.Initialize(4567);
-        hr = server.Start();
+        NETP_SERVER_CONFIG config = {0};
+        config.port = 4567;
+        config.maxConnections = 1000;
+        config.defaultSendBuffer = 65536;
+        config.defaultRecvBuffer = 65536;
+        config.reuseAddr = TRUE;
+        config.tcpNoDelay = TRUE;
+        config.keepAlive.enabled = TRUE;
+        config.keepAlive.idleTime = 60000;  // 60 seconds
+        config.keepAlive.interval = 1000;   // 1 second
+
+        hr = server.Initialize(&config);
+        if (SUCCEEDED(hr))
+        {
+            hr = server.Start();
+            if (FAILED(hr))
+            {
+                std::cout << "Failed to start server" << std::endl;
+            }
+            else
+            {
+                std::cout << "Server started on port " << config.port << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "Failed to initialize server" << std::endl;
+        }
     }
     else if (command == "stop")
     {
-        HRESULT hr;
-        hr = server.Stop();
+        HRESULT hr = server.Stop();
+        if (FAILED(hr))
+        {
+            std::cout << "Failed to stop server" << std::endl;
+        }
+        else
+        {
+            std::cout << "Server stopped" << std::endl;
+        }
     }
     else if (command == "help")
     {
-        std::cout << "command: start, stop ,help" << std::endl;
-    }
-    else
-    {
+        std::cout << "Commands available:" << std::endl;
+        std::cout << "  start  - Start server" << std::endl;
+        std::cout << "  stop   - Stop server" << std::endl;
+        std::cout << "  help   - Show this help" << std::endl;
+        std::cout << "  exit   - Exit application" << std::endl;
     }
 }
 

@@ -1,53 +1,36 @@
 #include "netpp.h"
 
-
-
-
-
-
-
-ServerImpl::ServerImpl()
+ServerImpl::ServerImpl() : base(nullptr), listener(nullptr), signal_event(nullptr)
 {
-
 }
 
 ServerImpl::~ServerImpl()
 {
-    
 }
 
-
-
-HRESULT ServerImpl::Initialize(WORD Port, IEventHandler *piEventHander)
+HRESULT ServerImpl::Initialize(const NETP_SERVER_CONFIG* pConfig, IEventHandler* piEventHandler)
 {
     HRESULT hr = S_OK;
 
     // WSAStartup
     WSADATA wsaData;
     if ((WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0) {
-
-        HRESULT hr;
         hr = HRESULT_FROM_WIN32(GetLastError());
         LOGF(_T("WSAStartup failed! hr = %08X\n"), hr);
-
-        hr = E_FAIL;
         return hr;
     }
-
     
     evthread_use_windows_threads();
 
-    portnum_ = Port;
-    piEventCb_ = piEventHander;
+    portnum_ = pConfig->port;
+    piEventCb_ = piEventHandler;
 
     return hr;
 }
 
-
 HRESULT ServerImpl::Start()
 {
     HRESULT hr = S_OK;
-
 
     hThreadWorker_ = CreateThread(NULL, 0, WorkerThreadProc, this, 0, &dwThreadID_);
     if (hThreadWorker_ == NULL) {
@@ -60,7 +43,6 @@ HRESULT ServerImpl::Start()
     return hr;
 }
 
-
 HRESULT ServerImpl::Stop()
 {
     HRESULT hr = S_OK;
@@ -71,8 +53,6 @@ HRESULT ServerImpl::Stop()
     }
     return hr;
 }
-
-
 
 DWORD WINAPI ServerImpl::WorkerThreadProc(LPVOID lpParam)
 {
@@ -100,10 +80,9 @@ DWORD ServerImpl::WorkerThread()
 
     if (!listener) {
         LOGF(_T("Could not create a listener!\n"));
-        piEventCb_->OnEvent(EVENT_BIND_ERROR, 0);
+        piEventCb_->OnEvent(EVENT_BIND_ERROR, 0, NETP_E_BIND_FAILED, _T("Could not create a listener!"));
         return 1;
     }
-
 
     event_base_dispatch(base);
     evconnlistener_free(listener);
@@ -111,10 +90,6 @@ DWORD ServerImpl::WorkerThread()
 
     return 0;
 }
-
-
-
-
 
 void ServerImpl::listener_cb(struct evconnlistener* listener, evutil_socket_t fd,
     struct sockaddr* sa, int socklen, void* user_data)
@@ -145,7 +120,6 @@ void ServerImpl::listener_cb(struct evconnlistener* listener, evutil_socket_t fd
     bufferevent_enable(bev, EV_READ);
 }
 
-
 void ServerImpl::signal_cb(evutil_socket_t sig, short events, void* user_data)
 {
     ServerImpl* pThis = (ServerImpl*)user_data;
@@ -158,7 +132,6 @@ void ServerImpl::signal_cb(evutil_socket_t sig, short events, void* user_data)
     event_base_loopexit(base, &delay);
 }
 
-
 void ServerImpl::conn_writecb(struct bufferevent* bev, void* user_data)
 {
     ConnectImplServer* connection = static_cast<ConnectImplServer*>(user_data);
@@ -167,7 +140,6 @@ void ServerImpl::conn_writecb(struct bufferevent* bev, void* user_data)
 void ServerImpl::conn_readcb(struct bufferevent* bev, void* user_data)
 {
     ConnectImplServer* connection = static_cast<ConnectImplServer*>(user_data);
-
 
     struct evbuffer* input = bufferevent_get_input(bev);
     size_t sz = evbuffer_get_length(input);
@@ -211,12 +183,9 @@ void ServerImpl::conn_eventcb(struct bufferevent* bev, short events, void* user_
 {
     ConnectImplServer* pConn = static_cast<ConnectImplServer*>(user_data);
 
-
     if (events & BEV_EVENT_EOF) {
         LOGI(_T("Connection closed! bev = %p\n"), bev);
         pConn->OnEvent(CONNECTION_CLOSE);
-
-
     }
     else if (events & BEV_EVENT_ERROR) {
         //printf("Got an error on the connection: %s\n",
@@ -224,11 +193,9 @@ void ServerImpl::conn_eventcb(struct bufferevent* bev, short events, void* user_
 
         LOGI(_T("Got an error on the connection\n"));/*XXX win32*/
         pConn->OnEvent(CONNECTION_ERROR);
-
     }
     /* None of the other events can happen here, since we haven't enabled
      * timeouts */
-
 
     bufferevent_free(bev);
     delete pConn;

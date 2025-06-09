@@ -1,34 +1,53 @@
 #pragma once
 
+#include "netp.h"
 
-#if !defined(_NETP_H_)
-#error "include <netp.h> before netphlp.h 
-#endif
-
-using netp::IServer;
-using netp::IConnection;
-using netp::IClient;
-using netp::ISession;
-using netp::IEventHandler;
+using namespace netp;
 
 /// NetpServerImpl
 template <typename T, typename TS>
-class NetpServerImpl: public IEventHandler
+class NetpServerImpl : public IEventHandler
 {
 public:
-    
+    NetpServerImpl() : piServer_(nullptr) {}
+    virtual ~NetpServerImpl() 
+    {
+        if (piServer_)
+        {
+            piServer_->Stop();
+            piServer_ = nullptr;
+        }
+    }
+
     HRESULT Initialize(WORD wPort)
     {
+        NETP_SERVER_CONFIG config = {0};
+        config.port = wPort;
+        config.maxConnections = 1000;
+        config.defaultSendBuffer = 65536;
+        config.defaultRecvBuffer = 65536;
+        config.reuseAddr = TRUE;
+        config.tcpNoDelay = TRUE;
+        config.keepAlive.enabled = TRUE;
+        config.keepAlive.idleTime = 60000;  // 60 seconds
+        config.keepAlive.interval = 1000;   // 1 second
+
+        return Initialize(&config);
+    }
+
+    HRESULT Initialize(const NETP_SERVER_CONFIG* pConfig)
+    {
         HRESULT hr = S_OK;
-        // create instance of IServer
-        hr = NetpCreateInstance(NETP_ISERVER, (void **)&piServer_);
+        
+        // Create instance of IServer
+        hr = NetpCreateInstance(NETP_ISERVER, (void**)&piServer_);
         if (FAILED(hr))
         {
             return hr;
         }
 
         // Initialize the server
-        hr = piServer_->Initialize(wPort, this);
+        hr = piServer_->Initialize(pConfig, this);
         if (FAILED(hr))
         {
             return hr;
@@ -36,108 +55,164 @@ public:
 
         return hr;
     }
-
 
     HRESULT Start()
     {
         HRESULT hr = S_OK;
         if (nullptr == piServer_)
         {
-            hr = E_NOT_VALID_STATE;
+            hr = NETP_E_INVALID_STATE;
             return hr;
         }
 
-        // start server
         hr = piServer_->Start();
-
         return hr;
     }
-
 
     HRESULT Stop()
     {
         HRESULT hr = S_OK;
-
-        hr = piServer_->Stop();
-
+        if (piServer_)
+        {
+            hr = piServer_->Stop();
+        }
         return hr;
     }
 
-protected:
-    // IEventHandler
-    virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam)
+    HRESULT GetActiveConnections(SIZE_T* pCount)
     {
-        HRESULT hr = E_FAIL;
+        if (nullptr == piServer_)
+        {
+            return NETP_E_INVALID_STATE;
+        }
+        return piServer_->GetActiveConnections(pCount);
+    }
+
+protected:
+    // IEventHandler implementation
+    virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, 
+                          ULONG_PTR ulParam,
+                          NETP_ERROR_CODE errorCode,
+                          LPCSTR errorMessage) override
+    {
+        HRESULT hr = S_OK;
         switch(eEventId)
         {
         case EVENT_NEW_CONNECTION:
             hr = OnNewConnection(reinterpret_cast<IConnection*>(ulParam));
             break;
-
         case EVENT_BIND_ERROR:
-            hr = OnBindError();
+            hr = OnBindError(errorCode, errorMessage);
             break;
         case EVENT_CONNECTION_CLOSE:
-            hr = OnConnectionCose(reinterpret_cast<IConnection*>(ulParam));
+            hr = OnConnectionClose(reinterpret_cast<IConnection*>(ulParam));
+            break;
+        case EVENT_NETWORK_ERROR:
+            hr = OnNetworkError(errorCode, errorMessage);
             break;
         default:             
+            hr = static_cast<T*>(this)->OnCustomEvent(eEventId, ulParam, errorCode, errorMessage);
             break;
         }
         return hr;
     }
 
 protected:
-    IServer *piServer_;
-
+    IServer* piServer_;
 
 private:
-    HRESULT OnNewConnection(IConnection *piConn)
+    HRESULT OnNewConnection(IConnection* piConn)
     {
         HRESULT hr = S_OK;
-        TS *pSession = new TS(piConn);
-        if(!pSession)
+        
+        if (!piConn)
+            return E_INVALIDARG;
+
+        TS* pSession = new TS(piConn);
+        if (!pSession)
         {
             hr = E_OUTOFMEMORY;
             return hr;
         }
         
-        piConn->SetSession(pSession);        
-        return hr;
+        hr = piConn->SetSession(pSession);
+        if (FAILED(hr))
+        {
+            delete pSession;
+            return hr;
+        }
+
+        return static_cast<T*>(this)->OnClientConnected(piConn);
     }
     
-    HRESULT OnConnectionCose(IConnection *piConn)
+    HRESULT OnConnectionClose(IConnection* piConn)
     {
-        HRESULT hr = S_OK;
-        return hr;
+        if (!piConn)
+            return E_INVALIDARG;
+
+        ISession* pSession = piConn->GetSession();
+        if (pSession)
+        {
+            delete pSession;
+            piConn->SetSession(nullptr);
+        }
+
+        return static_cast<T*>(this)->OnClientDisconnected(piConn);
     }
 
-    HRESULT OnBindError()
+    HRESULT OnBindError(NETP_ERROR_CODE errorCode, LPCSTR errorMessage)
     {
-        HRESULT hr = S_OK;
-        return hr;
+        return static_cast<T*>(this)->OnServerError(errorCode, errorMessage);
+    }
+
+    HRESULT OnNetworkError(NETP_ERROR_CODE errorCode, LPCSTR errorMessage)
+    {
+        return static_cast<T*>(this)->OnServerError(errorCode, errorMessage);
     }
 };
 
-
-
 /// NetpClientImpl
 template <typename T, typename TS>
-class NetpClientImpl: public IEventHandler
+class NetpClientImpl : public IEventHandler
 {
 public:
-    
-    HRESULT Initialize(LPCTSTR lpszIPAddress, WORD wPort)
+    NetpClientImpl() : piClient_(nullptr), ptSession_(nullptr) {}
+    virtual ~NetpClientImpl()
+    {
+        if (piClient_)
+        {
+            piClient_->Stop();
+            piClient_ = nullptr;
+        }
+    }
+
+    HRESULT Initialize(LPCSTR lpszIPAddress, WORD wPort)
+    {
+        NETP_CLIENT_CONFIG config = {0};
+        strncpy_s(config.ipAddress, sizeof(config.ipAddress), lpszIPAddress, _TRUNCATE);
+        config.port = wPort;
+        config.sendBufferSize = 65536;
+        config.recvBufferSize = 65536;
+        config.tcpNoDelay = TRUE;
+        config.keepAlive.enabled = TRUE;
+        config.keepAlive.idleTime = 60000;  // 60 seconds
+        config.keepAlive.interval = 1000;   // 1 second
+        config.connectTimeout = 5000;       // 5 seconds
+
+        return Initialize(&config);
+    }
+
+    HRESULT Initialize(const NETP_CLIENT_CONFIG* pConfig)
     {
         HRESULT hr = S_OK;
-        // create instance of IServer
-        hr = NetpCreateInstance(NETP_ICLIENT, (void **)&piClient_);
+        
+        hr = NetpCreateInstance(NETP_ICLIENT, (void**)&piClient_);
         if (FAILED(hr))
         {
             return hr;
         }
 
-        // Initialize the server
-        hr = piClient_->Initialize(lpszIPAddress, wPort, this);
+        hr = piClient_->Initialize(pConfig, this);
         if (FAILED(hr))
         {
             return hr;
@@ -145,83 +220,115 @@ public:
 
         return hr;
     }
-
 
     HRESULT Start()
     {
-        HRESULT hr = S_OK;
         if (nullptr == piClient_)
         {
-            hr = E_NOT_VALID_STATE;
-            return hr;
+            return NETP_E_INVALID_STATE;
         }
-
-        // start server
-        hr = piClient_->Start();
-
-        return hr;
+        return piClient_->Start();
     }
-
 
     HRESULT Stop()
     {
         HRESULT hr = S_OK;
-
-        hr = piClient_->Stop();
-
+        if (piClient_)
+        {
+            hr = piClient_->Stop();
+        }
         return hr;
     }
 
-    TS *GetSession()
+    HRESULT Reconnect()
+    {
+        if (nullptr == piClient_)
+        {
+            return NETP_E_INVALID_STATE;
+        }
+        return piClient_->Reconnect();
+    }
+
+    TS* GetSession()
     {
         return ptSession_;
     }
 
 protected:
-    // IEventHandler
-    virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam)
+    // IEventHandler implementation
+    virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, 
+                          ULONG_PTR ulParam,
+                          NETP_ERROR_CODE errorCode,
+                          LPCSTR errorMessage) override
     {
-        HRESULT hr = E_FAIL;
+        HRESULT hr = S_OK;
         switch(eEventId)
         {
         case EVENT_NEW_CONNECTION:
             hr = OnNewConnection(reinterpret_cast<IConnection*>(ulParam));
             break;
-
         case EVENT_CONNECTION_CLOSE:
-            hr = OnConnectionCose(reinterpret_cast<IConnection*>(ulParam));
+            hr = OnConnectionClose(reinterpret_cast<IConnection*>(ulParam));
             break;
-        default:             
+        case EVENT_NETWORK_ERROR:
+            hr = OnNetworkError(errorCode, errorMessage);
+            break;
+        default:
+            hr = static_cast<T*>(this)->OnCustomEvent(eEventId, ulParam, errorCode, errorMessage);
             break;
         }
         return hr;
     }
 
 protected:
-    IClient *piClient_;
-
+    IClient* piClient_;
+    TS* ptSession_;
 
 private:
-    HRESULT OnNewConnection(IConnection *piConn)
+    HRESULT OnNewConnection(IConnection* piConn)
     {
         HRESULT hr = S_OK;
-        TS *pSession = new TS(piConn);
-        if(!pSession)
+        
+        if (!piConn)
+            return E_INVALIDARG;
+
+        TS* pSession = new TS(piConn);
+        if (!pSession)
         {
             hr = E_OUTOFMEMORY;
             return hr;
         }
         
         ptSession_ = pSession;
-        piConn->SetSession(pSession);        
-        return hr;
+        hr = piConn->SetSession(pSession);
+        if (FAILED(hr))
+        {
+            delete pSession;
+            ptSession_ = nullptr;
+            return hr;
+        }
+
+        return static_cast<T*>(this)->OnConnected(piConn);
     }
     
-    HRESULT OnConnectionCose(IConnection *piConn)
+    HRESULT OnConnectionClose(IConnection* piConn)
     {
-        HRESULT hr = S_OK;
-        return hr;
+        if (!piConn)
+            return E_INVALIDARG;
+
+        ISession* pSession = piConn->GetSession();
+        if (pSession)
+        {
+            delete pSession;
+            piConn->SetSession(nullptr);
+            ptSession_ = nullptr;
+        }
+
+        return static_cast<T*>(this)->OnDisconnected(piConn);
     }
 
-    TS *ptSession_;
+    HRESULT OnNetworkError(NETP_ERROR_CODE errorCode, LPCSTR errorMessage)
+    {
+        return S_OK;
+    }
 };
