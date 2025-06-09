@@ -1,275 +1,167 @@
-#ifndef _NETP_IMPL_H_
-#define _NETP_IMPL_H_
+#pragma once
 
+#include <netp.h>
+#include <event2/event.h>
+#include <event2/bufferevent.h>
+#include <event2/buffer.h>
+#include <event2/listener.h>
+#include <event2/thread.h>
+#include <stdexcept>
+#include <iostream>
+#include <thread>
 
-using namespace netp;
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 
+namespace netp {
+namespace impl {
 
-
-typedef enum _CONNECTION_EVENT
-{
-    CONNECTION_CLOSE,
-    CONNECTION_ERROR,
-    CONNECTION_ESTABLISHED,
-}CONNECTION_EVENT;
-
-
-
-
-class ConnectionImpl: public IConnection
-{
+#ifdef _WIN32
+// Windows socket initialization helper
+class WinSockInitializer {
 public:
-    ConnectionImpl(struct bufferevent *bev)
-        : bev_(bev), pRecvBuf_(nullptr), piConnectionCb_(nullptr)
-    {
+    static WinSockInitializer& instance() {
+        static WinSockInitializer inst;
+        return inst;
     }
 
-    virtual ~ConnectionImpl()
-    {
-        if (pRecvBuf_)
-        {
-            delete[] pRecvBuf_;
-        }
-    }
-
-    HRESULT Initialize(std::function<void()> OnClose)
-    {
-        HRESULT hr = S_OK;
-        pRecvBuf_  = new BYTE[4096];
-        lambdaClose_=OnClose;
-        return hr;      
-    }
-    virtual HRESULT SetSession(ISession* piSession);
-    virtual ISession* GetSession() { return piConnectionCb_; }
-    virtual HRESULT SendPacket(BYTE* Packet, SIZE_T Length );
-    // virtual HRESULT GetRemoteIP(char *ipaddr, SIZE_T size);
-
-
-    BYTE *getRecvBuffer(){return pRecvBuf_;}
-
-    // virtual HRESULT OnEvent(CONNECTION_EVENT event);
-
-private:
-    struct bufferevent* bev_;
-    ISession* piConnectionCb_;
-    BYTE *pRecvBuf_;
-
-protected:
-    std::function<void()> lambdaClose_;
-
-};
-
-class ConnectImplServer: public ConnectionImpl
-{
-public:
-    ConnectImplServer(struct bufferevent *bev, char *ipaddr)
-        :ConnectionImpl(bev)
-    {
-        StringCchCopyA(ipaddr_, 16, ipaddr);
-    }
-    ~ConnectImplServer()
-    {
-
-    }
-
-    virtual HRESULT GetRemoteIP(char *ipaddr, SIZE_T size)
-    {
-        HRESULT hr = S_OK;
-
-        StringCchCopyA(ipaddr, size, ipaddr_);
-
-        return hr;
-    }
-
-    virtual HRESULT OnEvent(CONNECTION_EVENT event)
-    {
-        HRESULT hr = S_OK;
-        if (event == CONNECTION_CLOSE)
-        {
-        }
-        else if (event == CONNECTION_ERROR)
-        {
-        }
-        lambdaClose_();
-        return hr;
+    // Call this before any network operations
+    static void ensureInitialized() {
+        instance();
     }
 
 private:
-    CHAR ipaddr_[16];
+    WinSockInitializer() {
+        std::cout << "[WinSockInitializer] Initializing WSA..." << std::endl;
+        WSADATA wsaData;
+        int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
+        if (result != 0) {
+            std::cerr << "[WinSockInitializer] WSAStartup failed with error: " << result << std::endl;
+            throw std::runtime_error("WSAStartup failed: " + std::to_string(result));
+        }
+        std::cout << "[WinSockInitializer] WSA initialized successfully" << std::endl;
+    }
 
+    ~WinSockInitializer() {
+        std::cout << "[WinSockInitializer] Cleaning up WSA..." << std::endl;
+        WSACleanup();
+        std::cout << "[WinSockInitializer] WSA cleanup completed" << std::endl;
+    }
+
+    // Prevent copying
+    WinSockInitializer(const WinSockInitializer&) = delete;
+    WinSockInitializer& operator=(const WinSockInitializer&) = delete;
 };
+#endif
 
-
-
-class ConnectImplClient: public ConnectionImpl
-{
+// Helper class for packet framing
+class PacketFramer {
 public:
-    ConnectImplClient(struct bufferevent *bev)
-        :ConnectionImpl(bev)
-    {
+    static constexpr size_t HEADER_SIZE = sizeof(PacketHeader);
 
-    }
-    ~ConnectImplClient()
-    {
+    // Process incoming data and extract complete packets
+    std::vector<std::vector<uint8_t>> processData(const uint8_t* data, size_t length);
 
-    }
+    // Frame a packet for sending
+    static std::vector<uint8_t> framePacket(const std::vector<uint8_t>& data);
 
-
-    HRESULT Initialize(std::function<void()> OnConnect, std::function<void()> OnClose)
-    {
-        HRESULT hr = S_OK;
-        hr = ConnectionImpl::Initialize(OnClose);
-        lambdaOnConnect_ = OnConnect;
-        return hr;      
-    }
-
-    virtual HRESULT GetRemoteIP(char *ipaddr, SIZE_T size)
-    {
-        HRESULT hr = S_OK;
-        return hr;
-    }
-
-    virtual HRESULT OnEvent(CONNECTION_EVENT event)
-    {
-        HRESULT hr = S_OK;
-
-        if (event == CONNECTION_CLOSE)
-        {
-            lambdaClose_();
-        }
-        else if (event == CONNECTION_ERROR)
-        {
-            lambdaClose_();
-        }
-        else if (event == CONNECTION_ESTABLISHED)
-        {
-            lambdaOnConnect_();
-        }
-        return hr;
-    }
 private:
-    std::function<void()> lambdaOnConnect_;
-
+    std::vector<uint8_t> buffer_;
 };
 
+// Smart pointer types for libevent resources
+using EventBasePtr = std::unique_ptr<event_base, decltype(&event_base_free)>;
+using BufferEventPtr = std::unique_ptr<bufferevent, decltype(&bufferevent_free)>;
+using ListenerPtr = std::unique_ptr<evconnlistener, decltype(&evconnlistener_free)>;
 
-class ServerImpl : public IServer
-{
+// Network byte order conversion
+uint32_t htonl(uint32_t hostlong);
+uint32_t ntohl(uint32_t netlong);
+
+// Connection implementation
+class ConnectionImpl : public Connection {
+public:
+    ConnectionImpl(event_base* base, bufferevent* bev);
+    ~ConnectionImpl() override;
+
+    bool sendPacket(const Packet& packet) override;
+    bool sendRawData(const std::vector<uint8_t>& data) override;
+    void setPacketHandler(PacketHandler handler) override;
+    void setErrorHandler(ErrorHandler handler) override;
+    void setDisconnectHandler(DisconnectHandler handler) override;
+    bool isConnected() const override;
+    void disconnect() override;
+    std::string getRemoteAddress() const override;
+    uint16_t getRemotePort() const override;
+
+    void onRead();
+    void onError(short events);
+
+private:
+    EventBasePtr base_;
+    BufferEventPtr bev_;
+    PacketFramer framer_;
+    PacketHandler packet_handler_;
+    ErrorHandler error_handler_;
+    DisconnectHandler disconnect_handler_;
+    bool connected_;
+    std::string remote_addr_;
+    uint16_t remote_port_;
+};
+
+// Server implementation
+class ServerImpl : public Server {
 public:
     ServerImpl();
-    ~ServerImpl();
+    ~ServerImpl() override;
 
-
-    HRESULT Initialize(WORD Port, IEventHandler *piEventHander);
-    HRESULT Start();
-    HRESULT Stop();
+    bool start(uint16_t port) override;
+    void stop() override;
+    void setConnectionHandler(ConnectionHandler handler) override;
+    void setErrorHandler(ErrorHandler handler) override;
+    bool isRunning() const override;
+    uint16_t getPort() const override;
 
 private:
-    // tcp Port number
-    WORD portnum_;
-
-    // win32 thread
-    HANDLE hThreadWorker_;
-    DWORD dwThreadID_;
-
-    static DWORD WINAPI WorkerThreadProc(LPVOID lpParam);
-    DWORD WorkerThread();
-
-
-    // libevent backend
-    struct event_base* base = NULL;
-    struct evconnlistener* listener;
-    struct event* signal_event;
-
-
-    static void listener_cb(struct evconnlistener*, evutil_socket_t,
-        struct sockaddr*, int socklen, void*);
-    static void signal_cb(evutil_socket_t, short, void*);
-
-	static void conn_writecb(struct bufferevent* bev, void* user_data);
-    static void conn_readcb(struct bufferevent* bev, void* user_data);
-    static void conn_eventcb(struct bufferevent* bev, short events, void* user_data);
-
-
-    IEventHandler *piEventCb_;
-
+    static void acceptCallback(struct evconnlistener* listener,
+                             evutil_socket_t fd,
+                             struct sockaddr* addr,
+                             int socklen,
+                             void* ctx);
     
+    static void acceptErrorCallback(struct evconnlistener* listener,
+                                  void* ctx);
 
-private:
-    std::set<IConnection*> vecConnection_;
-    HRESULT OnNewConnection(IConnection* piConn)
-    {
-        HRESULT hr = S_OK;
-        vecConnection_.insert(piConn);
-
-        ConnectionImpl *pConn = reinterpret_cast<ConnectionImpl *>(piConn);
-        piEventCb_->OnEvent(EVENT_NEW_CONNECTION, ULONG_PTR(piConn));
-
-        pConn->Initialize([this, pConn]()
-                          { OnConnectionClose(pConn); });
-
-        return hr;
-    }
-
-    virtual void OnConnectionClose(IConnection* pConn)
-    {
-        vecConnection_.erase(pConn);
-
-        piEventCb_->OnEvent(EVENT_CONNECTION_CLOSE, ULONG_PTR(pConn) );
-    }
-
+    EventBasePtr base_;
+    ListenerPtr listener_;
+    ConnectionHandler connection_handler_;
+    ErrorHandler error_handler_;
+    bool running_;
+    uint16_t port_;
+    std::thread event_thread_;  // Thread for running the event loop
 };
 
-
-
-class ClientImpl: public IClient
-{
+// Client implementation
+class ClientImpl : public Client {
 public:
     ClientImpl();
-    ~ClientImpl();
+    ~ClientImpl() override;
 
-
-    HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventHandler *piEventHander);
-    HRESULT Start();
-    HRESULT Stop();
-
-
-private:
-    CHAR ipaddr_[16];
-    // tcp Port number
-    WORD portnum_;
-
-    // win32 thread
-    HANDLE hThreadWorker_;
-    DWORD dwThreadID_;
-
-    static DWORD WINAPI WorkerThreadProc(LPVOID lpParam);
-    DWORD WorkerThread();
-
-
-    // libevent backend
-    struct event_base* base = NULL;
-	struct bufferevent* bev = NULL;
-
-
-	static void conn_writecb(struct bufferevent* bev, void* user_data);
-    static void conn_readcb(struct bufferevent* bev, void* user_data);
-    static void conn_eventcb(struct bufferevent* bev, short events, void* user_data);
-
-
-    IEventHandler *piEventCb_;
+    bool connect(const std::string& host, uint16_t port) override;
+    void disconnect() override;
+    ConnectionPtr getConnection() override;
+    bool isConnected() const override;
 
 private:
-    void OnConnection(IConnection* pConn)
-    {
-        piEventCb_->OnEvent(EVENT_NEW_CONNECTION, ULONG_PTR(pConn) );
-    }
+    static void connectCallback(struct bufferevent* bev, short events, void* ctx);
 
-    void OnConnectionClose(IConnection* pConn)
-    {
-        piEventCb_->OnEvent(EVENT_CONNECTION_CLOSE, ULONG_PTR(pConn) );
-    }
+    EventBasePtr base_;
+    std::shared_ptr<ConnectionImpl> connection_;
+    std::string host_;
+    uint16_t port_;
 };
 
-
-#endif// _NETP_IMPL_H_
+} // namespace impl
+} // namespace netp 

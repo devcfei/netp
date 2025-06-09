@@ -2,26 +2,16 @@
     "version": "0.2.0",
     "configurations": [
       {
-        "name": "Client",
+        "name": "netp_sample(server)",
         "type": "cppvsdbg",
         "request": "launch",
-        "program": "${workspaceFolder}\\install\\bin\\client.exe",
-        "args": [],
+        "program": "${workspaceFolder}\\install\\Debug\\bin\\netp_sample.exe",
+        "args": ["server"],
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}",
         "environment": [],
-        "externalConsole": true,
+        //  "console": "externalTerminal"
       },
-      {
-        "name": "Server",
-        "type": "cppvsdbg",
-        "request": "launch",
-        "program": "${workspaceFolder}\\install\\bin\\server.exe",
-        "args": [],
-        "stopAtEntry": false,
-        "cwd": "${workspaceFolder}",
-        "environment": [],
-        "externalConsole": true,
-      }
+     
     ]
   }

@@ -1,94 +1,137 @@
-#ifndef _NETP_H_
-#define _NETP_H_
+#pragma once
 
+#include <cstdint>
+#include <vector>
+#include <memory>
+#include <functional>
+#include <string>
 
-#if !defined(_WINDOWS_)
-#error "include <windows.h> before netp.h 
-#endif
+namespace netp {
 
+// Forward declarations
+class Connection;
+class Server;
+class Client;
+using ConnectionPtr = std::shared_ptr<Connection>;
 
-// {879c8cfa-fe57-4bf7-b92b-37d1927b37ef}
-DEFINE_GUID(NETP_ISERVER, 0x879c8cfa, 0xfe57, 0x4bf7, 0xb9, 0x2b, 0x37, 0xd1, 0x92, 0x7b, 0x37, 0xef);
+//
+// Packet System
+//
 
-// {84d6027c-d0d7-427b-880a-1a232de6a44e}
-DEFINE_GUID(NETP_ICLIENT, 0x84d6027c, 0xd0d7, 0x427b, 0x88, 0x0a, 0x1a, 0x23, 0x2d, 0xe6, 0xa4, 0x4e);
-
-
-HRESULT NetpCreateInstance(REFIID iftype, void** ppi);
-
-
-typedef enum _NETP_EVENT_ID
-{
-    EVENT_BIND_ERROR,
-    EVENT_NEW_CONNECTION,
-    EVENT_CONNECTION_CLOSE,
-}NETP_EVENT_ID;
-
-namespace netp
-{
-
-
-class ISession
-{
-public:
-    virtual HRESULT OnPacket(BYTE* Packet, SIZE_T Length) = 0;
+// Packet header with 32-bit length field
+struct PacketHeader {
+    uint32_t data_length;  // Network byte order
 };
 
-
-
-class IConnection
-{
+// Base packet interface
+class Packet {
 public:
-    virtual HRESULT SetSession(ISession* piSession) = 0;
-    virtual ISession* GetSession() = 0;
-    virtual HRESULT SendPacket(BYTE* Packet, SIZE_T Length ) = 0;
-    virtual HRESULT GetRemoteIP(char *ipaddr, SIZE_T size) = 0;
+    virtual ~Packet() = default;
+    virtual std::vector<uint8_t> serialize() const = 0;
+    virtual bool deserialize(const uint8_t* data, size_t length) = 0;
+    virtual size_t getDataSize() const = 0;
 };
 
-
-
-
-
-class IEventHandler
-{
+// Helper template for packet implementation
+template<typename T>
+class BasicPacket : public Packet {
 public:
-    virtual HRESULT OnEvent(NETP_EVENT_ID eEventId, ULONG_PTR ulParam) = 0;
+    std::vector<uint8_t> serialize() const override {
+        return static_cast<const T*>(this)->serializeImpl();
+    }
+    
+    bool deserialize(const uint8_t* data, size_t length) override {
+        return static_cast<T*>(this)->deserializeImpl(data, length);
+    }
+    
+    size_t getDataSize() const override {
+        return static_cast<const T*>(this)->getDataSizeImpl();
+    }
 };
 
+//
+// Connection Interface
+//
 
-
-class IServer
-{
+class Connection {
 public:
+    // Handler types
+    using PacketHandler = std::function<void(const std::vector<uint8_t>&)>;
+    using ErrorHandler = std::function<void(const std::string&)>;
+    using DisconnectHandler = std::function<void()>;
 
-    virtual HRESULT Initialize(WORD Port, IEventHandler *piEventHander) = 0;
-    virtual HRESULT Start() = 0;
-    virtual HRESULT Stop() = 0;
+    virtual ~Connection() = default;
 
-public:
+    // Packet operations
+    virtual bool sendPacket(const Packet& packet) = 0;
+    virtual bool sendRawData(const std::vector<uint8_t>& data) = 0;
 
+    // Event handlers
+    virtual void setPacketHandler(PacketHandler handler) = 0;
+    virtual void setErrorHandler(ErrorHandler handler) = 0;
+    virtual void setDisconnectHandler(DisconnectHandler handler) = 0;
+
+    // Connection management
+    virtual bool isConnected() const = 0;
+    virtual void disconnect() = 0;
+
+    // Connection info
+    virtual std::string getRemoteAddress() const = 0;
+    virtual uint16_t getRemotePort() const = 0;
 };
 
+//
+// Server Interface
+//
 
-
-class IClient
-{
+class Server {
 public:
+    // Handler types
+    using ConnectionHandler = std::function<void(ConnectionPtr)>;
+    using ErrorHandler = std::function<void(const std::string&)>;
 
-    virtual HRESULT Initialize(const CHAR* lpszIPAddr, WORD Port, IEventHandler *piEventHander) = 0;
-    virtual HRESULT Start() = 0;
-    virtual HRESULT Stop() = 0;
+    virtual ~Server() = default;
 
-public:
+    // Server operations
+    virtual bool start(uint16_t port) = 0;
+    virtual void stop() = 0;
 
+    // Event handlers
+    virtual void setConnectionHandler(ConnectionHandler handler) = 0;
+    virtual void setErrorHandler(ErrorHandler handler) = 0;
+
+    // Server status
+    virtual bool isRunning() const = 0;
+    virtual uint16_t getPort() const = 0;
 };
 
+//
+// Client Interface
+//
 
+class Client {
+public:
+    virtual ~Client() = default;
 
+    // Client operations
+    virtual bool connect(const std::string& host, uint16_t port) = 0;
+    virtual void disconnect() = 0;
 
+    // Connection access
+    virtual ConnectionPtr getConnection() = 0;
 
-} // @namespace netp
+    // Client status
+    virtual bool isConnected() const = 0;
+};
 
+//
+// Factory Functions
+//
 
+// Create a new server instance
+std::unique_ptr<Server> createServer();
 
-#endif// _NETP_H_
+// Create a new client instance
+std::unique_ptr<Client> createClient();
+
+} // namespace netp

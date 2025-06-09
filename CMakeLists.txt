@@ -14,7 +14,6 @@ set(CMAKE_ARGS_LIBEVENT
     "-DEVENT__DISABLE_TESTS=TRUE"
     "-DEVENT__DISABLE_BENCHMARK=TRUE"
     "-DEVENT__DISABLE_REGRESS=TRUE"
-    "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
     )
 
 ExternalProject_Add(libevent-2.1.12
@@ -47,7 +46,7 @@ link_directories(
     )
 
 add_subdirectory(src)
-
+# Sample application
 if(BUILD_SAMPLES)
-    add_subdirectory(samples)
+    add_subdirectory(sample)
 endif()
