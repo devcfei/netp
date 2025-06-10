@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(netp_sample)
+project(netp_echo)
 
 # Set C++17 standard
 set(CMAKE_CXX_STANDARD 17)
@@ -16,15 +16,15 @@ set(SAMPLE_SOURCES
 )
 
 # Create sample executable
-add_executable(netp_sample ${SAMPLE_SOURCES})
+add_executable(netp_echo ${SAMPLE_SOURCES})
 
 # Link with netp library
-target_link_libraries(netp_sample
+target_link_libraries(netp_echo
     PRIVATE
         netp
 )
 
 # Installation
-install(TARGETS netp_sample
+install(TARGETS netp_echo
     RUNTIME DESTINATION bin
 ) 

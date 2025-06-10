@@ -18,14 +18,14 @@ goto menu
 
 :regular_test
 REM Start the server in a new window
-start "NETP Server" cmd /c "install\Debug\bin\netp_sample.exe server"
+start "NETP Server" cmd /c "install\Debug\bin\netp_echo.exe server"
 
 REM Wait for server to start
 timeout /t 2
 
 REM Start 10 clients in separate windows
 for /l %%x in (1, 1, 10) do (
-    start "NETP Client %%x" cmd /c "install\Debug\bin\netp_sample.exe client"
+    start "NETP Client %%x" cmd /c "install\Debug\bin\netp_echo.exe client"
     timeout /t 1
 )
 
@@ -44,7 +44,7 @@ goto menu
 
 :benchmark_test
 REM Start the server in a new window
-start "NETP Server" cmd /c "install\Debug\bin\netp_sample.exe server"
+start "NETP Server" cmd /c "install\Debug\bin\netp_echo.exe server"
 
 REM Wait for server to start
 timeout /t 2
@@ -118,7 +118,7 @@ for /l %%r in (1,1,!iterations!) do (
     REM Launch multiple benchmark instances in parallel
     for /l %%p in (1,1,!parallel_count!) do (
         echo Starting benchmark instance %%r-%%p
-        start "NETP Benchmark %%r-%%p" cmd /c "install\Debug\bin\netp_sample.exe benchmark !num_clients! 16 4092 !duration!"
+        start "NETP Benchmark %%r-%%p" cmd /c "install\Debug\bin\netp_echo.exe benchmark !num_clients! 16 4092 !duration!"
         REM Small delay between launches to prevent connection storm
         timeout /t 1 >nul
     )

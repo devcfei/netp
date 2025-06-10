@@ -48,5 +48,5 @@ link_directories(
 add_subdirectory(src)
 # Sample application
 if(BUILD_SAMPLES)
-    add_subdirectory(sample)
+    add_subdirectory(samples)
 endif()
