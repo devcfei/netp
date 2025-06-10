@@ -1,6 +1,15 @@
 #include <netpimpl.h>
-#include <ws2tcpip.h>
 #include <thread>
+#include <cstring>
+
+
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#elif __linux__
+#include <arpa/inet.h>
+#else 
+#error "unsupported OS!"
+#endif
 
 namespace netp {
 namespace impl {

@@ -39,9 +39,16 @@ target_link_libraries(netp
         event
         event_core
         event_extra
+    )
+
+if(WIN32)
+target_link_libraries(netp
+    PRIVATE
         ws2_32
         iphlpapi
 )
+endif()
+
 
 
 # Installation

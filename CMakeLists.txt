@@ -28,6 +28,7 @@ add_custom_target(libeventcopy ALL
     )
 
 add_dependencies(libeventcopy libevent-2.1.12)
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 add_custom_command(TARGET libeventcopy
     POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_INSTALL_PREFIX}/lib
@@ -35,6 +36,18 @@ add_custom_command(TARGET libeventcopy
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/event_core.lib ${CMAKE_INSTALL_PREFIX}/lib
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/event_extra.lib ${CMAKE_INSTALL_PREFIX}/lib
     )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_custom_command(TARGET libeventcopy
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_INSTALL_PREFIX}/lib
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/libevent.a ${CMAKE_INSTALL_PREFIX}/lib
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/libevent_core.a ${CMAKE_INSTALL_PREFIX}/lib
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/libevent_extra.a ${CMAKE_INSTALL_PREFIX}/lib
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/lib/libevent_pthreads.a ${CMAKE_INSTALL_PREFIX}/lib
+        )
+else()
+    message(WARNING "Unsupported operating system: ${CMAKE_SYSTEM_NAME}")
+endif()
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libevent/include    # libevent headers

@@ -1,5 +1,4 @@
 #include <netpimpl.h>
-#include <ws2tcpip.h>
 #include <thread>
 #include <iostream>
 #include <cstring>
@@ -7,6 +6,10 @@
 
 // std::min
 #include <algorithm>
+
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#endif
 
 namespace netp {
 namespace impl {

@@ -1,7 +1,11 @@
 #include <netpimpl.h>
-#include <ws2tcpip.h>
 #include <thread>
 #include <iostream>
+#include <cstring>
+
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#endif
 
 namespace netp {
 namespace impl {

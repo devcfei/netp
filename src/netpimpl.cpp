@@ -1,7 +1,10 @@
 #include <netpimpl.h>
 #include <cstring>
-#include <winsock2.h>
 #include <iostream>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 
 namespace netp {
 namespace impl {
