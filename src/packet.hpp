@@ -8,7 +8,7 @@ namespace netp {
 
 // Fixed size packet header with 32-bit length field
 struct PacketHeader {
-    uint32_t data_length;  // Network byte order
+    uint32_t data_length;  // Total packet length (header + data) in network byte order
 };
 
 // Base packet class that users can inherit from
@@ -19,7 +19,7 @@ public:
     // Serialize the packet into raw bytes
     virtual std::vector<uint8_t> serialize() const = 0;
     
-    // Deserialize from raw bytes
+    // Deserialize from raw bytes (excluding header)
     virtual bool deserialize(const uint8_t* data, size_t length) = 0;
     
     // Get the size of the packet data (excluding header)

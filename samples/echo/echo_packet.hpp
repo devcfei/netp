@@ -16,12 +16,12 @@ public:
 
     // Implementation for BasicPacket
     std::vector<uint8_t> serializeImpl() const {
-        // Create a vector with the message data
+        // Create a vector with the message data (header will be added by PacketFramer)
         std::vector<uint8_t> data;
         if (!message_.empty()) {
             data.resize(message_.size());
             std::memcpy(data.data(), message_.data(), message_.size());
-            std::cout << "[EchoPacket] Serialized message '" << message_ << "' to " << data.size() << " bytes" << std::endl;
+            std::cout << "[EchoPacket] Serialized message '" << message_ << "' to " << data.size() << " bytes (excluding header)" << std::endl;
         } else {
             std::cout << "[EchoPacket] Warning: Serializing empty message" << std::endl;
         }
@@ -38,12 +38,14 @@ public:
             message_.clear();
             return true;
         }
+        // Data passed to deserialize excludes the header
         message_.assign(reinterpret_cast<const char*>(data), length);
-        std::cout << "[EchoPacket] Deserialized message '" << message_ << "' from " << length << " bytes" << std::endl;
+        std::cout << "[EchoPacket] Deserialized message '" << message_ << "' from " << length << " bytes (excluding header)" << std::endl;
         return true;
     }
 
     size_t getDataSizeImpl() const {
+        // Return only the data size, header size will be added by PacketFramer
         return message_.size();
     }
 
