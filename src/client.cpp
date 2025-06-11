@@ -127,12 +127,9 @@ void ClientImpl::connectCallback(struct bufferevent* bev, short events, void* ct
     auto client = static_cast<ClientImpl*>(ctx);
 
     if (events & BEV_EVENT_CONNECTED) {
-        // Connection successful - set up the normal callbacks
-        bufferevent_setcb(bev, nullptr, nullptr, nullptr, client->connection_.get());
-        bufferevent_enable(bev, EV_READ | EV_WRITE);
-        
         // Now that we're actually connected, mark the connection as established
         if (client->connection_) {
+            // Let the connection set up its callbacks and mark itself as connected
             client->connection_->onConnect();
         }
     } else if (events & BEV_EVENT_ERROR) {

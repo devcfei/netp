@@ -152,6 +152,22 @@ void ServerImpl::acceptCallback(struct evconnlistener* listener,
 
     std::cout << "[Server] New connection accepted on socket " << fd << std::endl;
 
+    // Get peer information before creating connection
+    char host[NI_MAXHOST];
+    char service[NI_MAXSERV];
+    int gni_ret = getnameinfo(addr, socklen,
+                             host, sizeof(host),
+                             service, sizeof(service),
+                             NI_NUMERICHOST | NI_NUMERICSERV);
+    
+    if (gni_ret != 0) {
+        std::cerr << "[Server] Failed to get peer info: " << gai_strerror(gni_ret) << std::endl;
+        evutil_closesocket(fd);
+        return;
+    }
+
+    std::cout << "[Server] Accepted connection from " << host << ":" << service << std::endl;
+
     // Set socket to non-blocking mode
     evutil_make_socket_nonblocking(fd);
     std::cout << "[Server] Set socket to non-blocking mode" << std::endl;
@@ -176,6 +192,10 @@ void ServerImpl::acceptCallback(struct evconnlistener* listener,
 
     // Create connection object
     auto conn = std::make_shared<ConnectionImpl>(base, bev);
+    
+    // Set up the connection
+    conn->onConnect();  // This will set up callbacks and mark as connected
+    
     std::cout << "[Server] Created new connection from " << conn->getRemoteAddress() 
               << ":" << conn->getRemotePort() << std::endl;
 

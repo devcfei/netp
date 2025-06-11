@@ -60,46 +60,63 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
                        std::chrono::seconds duration,
                        BenchmarkStats& stats) {
     auto client = netp::createClient();
+    bool should_run = true;
+    const auto reconnect_delay = std::chrono::seconds(5);
+    int reconnect_count = 0;
     
-    if (client->connect(host, port)) {
-        log("Benchmark client connected to server");
-        
-        auto conn = client->getConnection();
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<size_t> msg_size_dist(min_msg_size, max_msg_size);
-
-        // Set up packet handler
-        conn->setPacketHandler([&stats](const std::vector<uint8_t>& data) {
-            stats.messages_received++;
-            stats.bytes_received += data.size();
-        });
-
-        // Set up error handler
-        conn->setErrorHandler([](const std::string& error) {
-            log("Benchmark client error: " + error);
-        });
-
-        auto end_time = std::chrono::steady_clock::now() + duration;
-        
-        while (std::chrono::steady_clock::now() < end_time && client->isConnected()) {
-            std::string msg = generateRandomString(msg_size_dist(gen));
-            EchoPacket packet(msg);
+    auto end_time = std::chrono::steady_clock::now() + duration;
+    
+    while (should_run && std::chrono::steady_clock::now() < end_time) {
+        if (client->connect(host, port)) {
+            log("Benchmark client connected to server");
+            reconnect_count = 0;  // Reset reconnect counter on successful connection
             
-            if (conn->sendPacket(packet)) {
-                stats.messages_sent++;
-                stats.bytes_sent += msg.size();
+            auto conn = client->getConnection();
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<size_t> msg_size_dist(min_msg_size, max_msg_size);
+
+            // Set up packet handler
+            conn->setPacketHandler([&stats](const std::vector<uint8_t>& data) {
+                stats.messages_received++;
+                stats.bytes_received += data.size();
+            });
+
+            // Set up error handler
+            conn->setErrorHandler([](const std::string& error) {
+                log("Benchmark client error: " + error);
+            });
+
+            // Set up disconnect handler
+            conn->setDisconnectHandler([&should_run]() {
+                log("Benchmark client disconnected from server");
+            });
+
+            while (std::chrono::steady_clock::now() < end_time && client->isConnected()) {
+                std::string msg = generateRandomString(msg_size_dist(gen));
+                EchoPacket packet(msg);
+                
+                if (conn->sendPacket(packet)) {
+                    stats.messages_sent++;
+                    stats.bytes_sent += msg.size();
+                } else {
+                    log("Benchmark client failed to send packet, will attempt reconnect");
+                    break;
+                }
+                
+                // Small delay to prevent overwhelming the server
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
-            
-            // Small delay to prevent overwhelming the server
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        } else {
+            reconnect_count++;
+            log("Benchmark client connection attempt " + std::to_string(reconnect_count) + 
+                " failed, retrying in " + std::to_string(reconnect_delay.count()) + " seconds...");
+            std::this_thread::sleep_for(reconnect_delay);
         }
-        
-        client->disconnect();
-        log("Benchmark client disconnected");
-    } else {
-        log("Benchmark client failed to connect");
     }
+    
+    client->disconnect();
+    log("Benchmark client finished");
 }
 
 void runBenchmark(size_t num_clients, size_t min_msg_size, size_t max_msg_size, int duration_seconds) {
@@ -141,11 +158,23 @@ void runServer() {
     auto server = netp::createServer();
     
     server->setConnectionHandler([](netp::ConnectionPtr conn) {
-        log("New connection from " + conn->getRemoteAddress() + ":" + std::to_string(conn->getRemotePort()));
+        // Wait a short moment for connection setup
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        std::string remote_addr = conn->getRemoteAddress();
+        uint16_t remote_port = conn->getRemotePort();
+        
+        if (remote_addr.empty() || remote_addr == "unknown") {
+            log("New connection established but peer information not available");
+        } else {
+            log("New connection from " + remote_addr + ":" + std::to_string(remote_port));
+        }
 
         // Set up packet handler
         conn->setPacketHandler([conn](const std::vector<uint8_t>& data) {
-            log("Server received raw data of size: " + std::to_string(data.size()));
+            std::string addr = conn->getRemoteAddress();
+            uint16_t port = conn->getRemotePort();
+            log("Server received data from " + addr + ":" + std::to_string(port) + ", size: " + std::to_string(data.size()));
             
             EchoPacket packet;
             if (packet.deserialize(data.data(), data.size())) {
@@ -164,13 +193,17 @@ void runServer() {
         });
 
         // Set up error handler
-        conn->setErrorHandler([](const std::string& error) {
-            log("Server connection error: " + error);
+        conn->setErrorHandler([conn](const std::string& error) {
+            std::string addr = conn->getRemoteAddress();
+            uint16_t port = conn->getRemotePort();
+            log("Server connection error from " + addr + ":" + std::to_string(port) + " - " + error);
         });
 
         // Set up disconnect handler
         conn->setDisconnectHandler([conn]() {
-            log("Client disconnected: " + conn->getRemoteAddress() + ":" + std::to_string(conn->getRemotePort()));
+            std::string addr = conn->getRemoteAddress();
+            uint16_t port = conn->getRemotePort();
+            log("Client disconnected: " + addr + ":" + std::to_string(port));
         });
     });
 
@@ -195,64 +228,92 @@ void runServer() {
 void runClient() {
     // Create and configure client
     auto client = netp::createClient();
+    bool should_run = true;
+    const auto reconnect_delay = std::chrono::seconds(5);
+    int reconnect_count = 0;
     
-    if (client->connect("127.0.0.1", 12345)) {
-        log("Connected to server");
-        
-        auto conn = client->getConnection();
-
-        // Set up packet handler
-        conn->setPacketHandler([](const std::vector<uint8_t>& data) {
-            log("Client received raw data of size: " + std::to_string(data.size()));
+    while (should_run) {
+        if (client->connect("127.0.0.1", 12345)) {
+            log("Connected to server");
+            reconnect_count = 0;  // Reset reconnect counter on successful connection
             
-            EchoPacket packet;
-            if (packet.deserialize(data.data(), data.size())) {
-                log("Client received echo: " + packet.getMessage());
-            } else {
-                log("Client failed to deserialize response packet! Raw data size: " + std::to_string(data.size()));
-            }
-        });
-
-        // Set up error handler
-        conn->setErrorHandler([](const std::string& error) {
-            log("Client connection error: " + error);
-        });
-
-        // Set up disconnect handler
-        conn->setDisconnectHandler([]() {
-            log("Disconnected from server");
-        });
-
-        log("Type your messages (type 'quit' to exit):");
-        
-        std::string input;
-        while (true) {
-            std::cout << "> ";
-            std::getline(std::cin, input);
+            auto conn = client->getConnection();
             
-            if (input == "quit") {
-                log("Closing client...");
-                break;
-            }
-            
-            if (!input.empty()) {
-                EchoPacket packet(input);
-                if (conn->sendPacket(packet)) {
-                    log("Client sent: " + input);
-                } else {
-                    log("Client failed to send: " + input);
-                }
-            }
-            
-            // Small delay to prevent flooding
+            // Wait a short moment for connection setup
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // Set up packet handler
+            conn->setPacketHandler([](const std::vector<uint8_t>& data) {
+                log("Client received raw data of size: " + std::to_string(data.size()));
+                
+                EchoPacket packet;
+                if (packet.deserialize(data.data(), data.size())) {
+                    log("Client received echo: " + packet.getMessage());
+                } else {
+                    log("Client failed to deserialize response packet! Raw data size: " + std::to_string(data.size()));
+                }
+            });
+
+            // Set up error handler
+            conn->setErrorHandler([](const std::string& error) {
+                log("Client connection error: " + error);
+            });
+
+            // Set up disconnect handler
+            conn->setDisconnectHandler([&should_run]() {
+                log("Disconnected from server, will attempt to reconnect");
+            });
+
+            log("Type your messages (type 'quit' to exit, 'reconnect' to force reconnection):");
+            
+            std::string input;
+            while (client->isConnected()) {
+                std::cout << "> ";
+                std::getline(std::cin, input);
+                
+                if (input == "quit") {
+                    log("Closing client...");
+                    should_run = false;
+                    break;
+                }
+                
+                if (input == "reconnect") {
+                    log("Forcing reconnection...");
+                    break;
+                }
+                
+                if (!input.empty()) {
+                    EchoPacket packet(input);
+                    if (conn->sendPacket(packet)) {
+                        log("Client sent: " + input);
+                    } else {
+                        log("Client failed to send: " + input);
+                        break;  // Break to trigger reconnection
+                    }
+                }
+                
+                // Small delay to prevent flooding
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            
+            client->disconnect();
+            
+            if (!should_run) {
+                break;  // Exit the reconnection loop if quitting
+            }
+            
+            // Add delay before reconnection attempt
+            std::this_thread::sleep_for(reconnect_delay);
+            
+        } else {
+            reconnect_count++;
+            log("Connection attempt " + std::to_string(reconnect_count) + 
+                " failed, retrying in " + std::to_string(reconnect_delay.count()) + " seconds...");
+            std::this_thread::sleep_for(reconnect_delay);
         }
-        
-        // Clean disconnect
-        client->disconnect();
-    } else {
-        log("Failed to connect to server");
     }
+    
+    log("Client terminated");
 }
 
 void printUsage(const char* program) {

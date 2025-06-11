@@ -104,7 +104,7 @@ bool ConnectionImpl::isConnected() const {
 void ConnectionImpl::onConnect() {
     connected_ = true;
 
-    // Now that we're connected, get peer info
+    // Get peer info
     struct sockaddr_storage addr;
 #ifdef _WIN32
     int addr_len = sizeof(addr);
@@ -113,7 +113,7 @@ void ConnectionImpl::onConnect() {
 #endif
 
     evutil_socket_t fd = bufferevent_getfd(bev_.get());
-    std::cout << "[Connection] Socket FD after connect: " << fd << std::endl;
+    std::cout << "[Connection] Socket FD: " << fd << std::endl;
 
     if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&addr), &addr_len) == 0) {
         char host[NI_MAXHOST];
@@ -124,13 +124,22 @@ void ConnectionImpl::onConnect() {
             remote_addr_ = host;
             remote_port_ = static_cast<uint16_t>(std::stoi(service));
             std::cout << "[Connection] Peer info: " << remote_addr_ << ":" << remote_port_ << std::endl;
+        } else {
+            std::cerr << "[Connection] Failed to get peer name info" << std::endl;
+            remote_addr_ = "unknown";
+            remote_port_ = 0;
         }
+    } else {
+        std::cerr << "[Connection] Failed to get peer name" << std::endl;
+        remote_addr_ = "unknown";
+        remote_port_ = 0;
     }
 
     // Set up the callbacks now that we're connected
     if (bev_) {
         bufferevent_setcb(bev_.get(), readCallback, writeCallback, eventCallback, this);
         bufferevent_enable(bev_.get(), EV_READ | EV_WRITE);
+        std::cout << "[Connection] Callbacks set up and events enabled" << std::endl;
     }
 }
 
