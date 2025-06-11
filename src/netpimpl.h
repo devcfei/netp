@@ -96,6 +96,7 @@ public:
     void onRead();
     void onError(short events);
     void onConnect();
+    void onClose();
     void clearCallbacks();
     void setState(ConnectionState state) { state_ = state; }
     ConnectionState getState() const { return state_; }

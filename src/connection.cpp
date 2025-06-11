@@ -28,7 +28,13 @@ static void writeCallback(struct bufferevent* bev, void* ctx) {
 static void eventCallback(struct bufferevent* bev, short events, void* ctx) {
     std::cout << "[Connection] eventCallback triggered with events: 0x" << std::hex << events << std::dec << std::endl;
     auto conn = static_cast<ConnectionImpl*>(ctx);
-    conn->onError(events);
+    
+    if (events & BEV_EVENT_EOF) {
+        std::cout << "[Connection] EOF received" << std::endl;
+        conn->onClose();
+    } else {
+        conn->onError(events);
+    }
 }
 
 ConnectionImpl::ConnectionImpl(event_base* base, bufferevent* bev)
@@ -161,6 +167,27 @@ void ConnectionImpl::onError(short events) {
         
         error_handler_(error_msg);
     }
+    
+    // After error, we should disconnect
+    if (disconnect_handler_) {
+        disconnect_handler_();
+    }
+}
+
+void ConnectionImpl::onClose() {
+    std::cout << "[Connection] Connection closed" << std::endl;
+    
+    // Set state to closed
+    state_ = ConnectionState::Closed;
+    connected_ = false;
+    
+    // Notify about disconnection
+    if (disconnect_handler_) {
+        disconnect_handler_();
+    }
+    
+    // Clean up the connection
+    clearCallbacks();
 }
 
 void ConnectionImpl::clearCallbacks() {
