@@ -32,7 +32,7 @@ static void eventCallback(struct bufferevent* bev, short events, void* ctx) {
 }
 
 ConnectionImpl::ConnectionImpl(event_base* base, bufferevent* bev)
-    : base_(base, event_base_free)
+    : base_(base)  // Store raw pointer - we don't own this
     , bev_(bev, bufferevent_free)
     , connected_(false)  // Initialize to false until connection is confirmed
     , remote_port_(0)

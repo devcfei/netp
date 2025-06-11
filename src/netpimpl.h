@@ -101,7 +101,7 @@ public:
     ConnectionState getState() const { return state_; }
 
 private:
-    EventBasePtr base_;
+    event_base* base_;  // Raw pointer - we don't own this
     BufferEventPtr bev_;
     PacketFramer framer_;
     PacketHandler packet_handler_;

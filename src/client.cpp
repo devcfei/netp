@@ -44,8 +44,15 @@ ClientImpl::~ClientImpl() {
 }
 
 bool ClientImpl::connect(const std::string& host, uint16_t port) {
-    if (connection_) {
+    // Only allow connection if we don't have a connection or if previous connection failed
+    if (connection_ && connection_->getState() != ConnectionState::Failed) {
         return false;
+    }
+
+    // Clean up any existing failed connection
+    if (connection_) {
+        connection_->clearCallbacks();
+        connection_.reset();
     }
 
     host_ = host;
