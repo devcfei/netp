@@ -36,6 +36,7 @@ ConnectionImpl::ConnectionImpl(event_base* base, bufferevent* bev)
     , bev_(bev, bufferevent_free)
     , connected_(false)  // Initialize to false until connection is confirmed
     , remote_port_(0)
+    , state_(ConnectionState::Closed)
 {
     std::cout << "[Connection] Creating new connection" << std::endl;
 
@@ -154,6 +155,10 @@ void ConnectionImpl::onError(short events) {
             error_msg += std::to_string(err);
         }
         
+        // Set state to Failed before calling error handler
+        state_ = ConnectionState::Failed;
+        connected_ = false;
+        
         error_handler_(error_msg);
     }
 }
@@ -171,6 +176,7 @@ void ConnectionImpl::clearCallbacks() {
     error_handler_ = nullptr;
     disconnect_handler_ = nullptr;
     connected_ = false;
+    state_ = ConnectionState::Closed;  // Update state when clearing callbacks
 }
 
 void ConnectionImpl::disconnect() {
