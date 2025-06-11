@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <thread>
+#include "connection.h"  // For ConnectionState enum
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -95,6 +96,9 @@ public:
     void onRead();
     void onError(short events);
     void onConnect();
+    void clearCallbacks();
+    void setState(ConnectionState state) { state_ = state; }
+    ConnectionState getState() const { return state_; }
 
 private:
     EventBasePtr base_;
@@ -106,6 +110,7 @@ private:
     bool connected_;
     std::string remote_addr_;
     uint16_t remote_port_;
+    ConnectionState state_ = ConnectionState::Initial;
 };
 
 // Server implementation

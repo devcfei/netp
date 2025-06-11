@@ -149,20 +149,31 @@ void ConnectionImpl::onError(short events) {
     }
 }
 
+void ConnectionImpl::clearCallbacks() {
+    if (bev_) {
+        // Disable all events first
+        bufferevent_disable(bev_.get(), EV_READ | EV_WRITE);
+        // Clear all callbacks
+        bufferevent_setcb(bev_.get(), nullptr, nullptr, nullptr, nullptr);
+    }
+    
+    // Clear handler functions
+    packet_handler_ = nullptr;
+    error_handler_ = nullptr;
+    disconnect_handler_ = nullptr;
+    connected_ = false;
+}
+
 void ConnectionImpl::disconnect() {
     if (connected_) {
         connected_ = false;
 
-        // Disable all events and callbacks first
-        if (bev_) {
-            bufferevent_disable(bev_.get(), EV_READ | EV_WRITE);
-            bufferevent_setcb(bev_.get(), nullptr, nullptr, nullptr, nullptr);
-            bufferevent_free(bev_.release());
-        }
+        // Clear all callbacks first
+        clearCallbacks();
 
-        // Notify disconnect handler
-        if (disconnect_handler_) {
-            disconnect_handler_();
+        // Now it's safe to free the bufferevent
+        if (bev_) {
+            bufferevent_free(bev_.release());
         }
     }
 }

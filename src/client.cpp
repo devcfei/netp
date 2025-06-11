@@ -1,7 +1,7 @@
 #include <netpimpl.h>
 #include <thread>
 #include <cstring>
-
+#include "connection.h"
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -38,6 +38,9 @@ ClientImpl::ClientImpl()
 
 ClientImpl::~ClientImpl() {
     disconnect();
+    
+    // Add a small delay to ensure event loop has exited
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 bool ClientImpl::connect(const std::string& host, uint16_t port) {
@@ -94,17 +97,19 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
 
 void ClientImpl::disconnect() {
     if (connection_) {
-        // First stop the event loop
+        // First disable and clear all bufferevent callbacks
+        connection_->clearCallbacks();
+        
+        // Then stop the event loop
         event_base_loopbreak(base_.get());
 
-        // Then disconnect the connection
-        connection_->disconnect();
+        // Clean up connection
         connection_.reset();
     }
 }
 
 ConnectionPtr ClientImpl::getConnection() {
-    return connection_;
+    return std::static_pointer_cast<Connection>(connection_);
 }
 
 bool ClientImpl::isConnected() const {
@@ -118,15 +123,35 @@ void ClientImpl::connectCallback(struct bufferevent* bev, short events, void* ct
         // Connection successful - set up the normal callbacks
         bufferevent_setcb(bev, nullptr, nullptr, nullptr, client->connection_.get());
         bufferevent_enable(bev, EV_READ | EV_WRITE);
-    } else {
-        // Connection failed
-        if (events & BEV_EVENT_ERROR) {
-            int err = EVUTIL_SOCKET_ERROR();
-            if (client->connection_) {
-                client->connection_->onError(events);
+        
+        // Now that we're actually connected, mark the connection as established
+        if (client->connection_) {
+            client->connection_->onConnect();
+        }
+    } else if (events & BEV_EVENT_ERROR) {
+        int err = EVUTIL_SOCKET_ERROR();
+        if (client->connection_) {
+            // Report the error through the connection's error handler
+            client->connection_->onError(events);
+            
+            // Set internal state but keep the object alive
+            client->connection_->setState(ConnectionState::Failed);
+            
+            // Break the event loop
+            if (client->base_) {
+                event_base_loopbreak(client->base_.get());
             }
         }
-        client->disconnect();
+    } else {
+        // Other events like EOF
+        if (client->connection_) {
+            client->connection_->setState(ConnectionState::Failed);
+            
+            // Break the event loop
+            if (client->base_) {
+                event_base_loopbreak(client->base_.get());
+            }
+        }
     }
 }
 

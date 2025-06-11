@@ -118,7 +118,7 @@ private:
 
 class CustomClient {
 public:
-    CustomClient(uint32_t id) : id_(id), should_retry_(false) {
+    CustomClient(uint32_t id) : id_(id), should_retry_(true) {
         client_ = createClient();
     }
 
