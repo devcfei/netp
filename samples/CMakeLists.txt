@@ -6,3 +6,4 @@ project(netp_sample)
 # Sub-directories
 add_subdirectory(echo)
 add_subdirectory(custom)
+add_subdirectory(benchmark)
