@@ -62,11 +62,8 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     // Set up the connection
     connection_ = std::make_shared<ConnectionImpl>(base_.get(), bev);
 
-    // Set up connection error handler
-    connection_->setErrorHandler([this](const std::string& error) {
-        // Ensure clean shutdown on connection error
-        disconnect();
-    });
+    // Set up the callbacks for the bufferevent
+    bufferevent_setcb(bev, nullptr, nullptr, connectCallback, this);
 
     // Start connection
     struct sockaddr_in sin;
@@ -87,9 +84,10 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     }
 
     // Start the event loop in a separate thread
-    std::thread([this]() {
+    event_thread_ = std::thread([this]() {
         event_base_dispatch(base_.get());
-    }).detach();
+    });
+    event_thread_.detach();  // Detach the thread to let it clean up on its own
 
     return true;
 }
@@ -97,9 +95,7 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
 void ClientImpl::disconnect() {
     if (connection_) {
         // First stop the event loop
-        if (base_) {
-            event_base_loopexit(base_.get(), nullptr);
-        }
+        event_base_loopbreak(base_.get());
 
         // Then disconnect the connection
         connection_->disconnect();
@@ -119,9 +115,17 @@ void ClientImpl::connectCallback(struct bufferevent* bev, short events, void* ct
     auto client = static_cast<ClientImpl*>(ctx);
 
     if (events & BEV_EVENT_CONNECTED) {
-        // Connection successful
+        // Connection successful - set up the normal callbacks
+        bufferevent_setcb(bev, nullptr, nullptr, nullptr, client->connection_.get());
+        bufferevent_enable(bev, EV_READ | EV_WRITE);
     } else {
         // Connection failed
+        if (events & BEV_EVENT_ERROR) {
+            int err = EVUTIL_SOCKET_ERROR();
+            if (client->connection_) {
+                client->connection_->onError(events);
+            }
+        }
         client->disconnect();
     }
 }

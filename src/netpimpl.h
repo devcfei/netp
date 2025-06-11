@@ -94,6 +94,7 @@ public:
 
     void onRead();
     void onError(short events);
+    void onConnect();
 
 private:
     EventBasePtr base_;
@@ -157,6 +158,7 @@ private:
     std::shared_ptr<ConnectionImpl> connection_;
     std::string host_;
     uint16_t port_;
+    std::thread event_thread_;  // Add thread member
 };
 
 } // namespace impl

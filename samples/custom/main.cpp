@@ -118,16 +118,38 @@ private:
 
 class CustomClient {
 public:
-    CustomClient(uint32_t id) : id_(id) {
+    CustomClient(uint32_t id) : id_(id), should_retry_(false) {
         client_ = createClient();
     }
 
     bool connect(const std::string& ip, uint16_t port) {
+        last_ip_ = ip;
+        last_port_ = port;
+        
         if (!client_->connect(ip, port)) {
+            std::cout << "Failed to initiate connection to " << ip << ":" << port << std::endl;
             return false;
         }
 
         auto conn = client_->getConnection();
+        if (!conn) return false;
+
+        // Set up error handler for connection failures
+        conn->setErrorHandler([this](const std::string& error) {
+            std::cout << "Client " << id_ << " error: " << error << std::endl;
+            
+            if (should_retry_) {
+                std::cout << "Will retry connection in 5 seconds..." << std::endl;
+                std::thread([this]() {
+                    std::this_thread::sleep_for(std::chrono::seconds(5));
+                    if (should_retry_) {
+                        std::cout << "Retrying connection..." << std::endl;
+                        connect(last_ip_, last_port_);
+                    }
+                }).detach();
+            }
+        });
+
         conn->setPacketHandler([this](const std::vector<uint8_t>& data) {
             onReceive(data);
         });
@@ -136,33 +158,50 @@ public:
             onClose();
         });
 
-        onConnect();
+        // Don't call onConnect here - it will be called when connection is actually established
         return true;
     }
 
     void disconnect() {
+        should_retry_ = false;  // Stop retry attempts
         if (client_ && client_->isConnected()) {
             client_->disconnect();
         }
     }
 
     void sendHello() {
+        if (!client_ || !client_->isConnected()) {
+            std::cout << "Cannot send HELLO: not connected" << std::endl;
+            return;
+        }
         CustomPacket packet(id_, CustomCommand::HELLO);
         sendPacket(packet);
     }
 
     void sendData(const std::vector<uint8_t>& data) {
+        if (!client_ || !client_->isConnected()) {
+            std::cout << "Cannot send DATA: not connected" << std::endl;
+            return;
+        }
         CustomPacket packet(id_, CustomCommand::DATA);
         packet.setData(data);
         sendPacket(packet);
     }
 
     void sendInvalidCommand() {
+        if (!client_ || !client_->isConnected()) {
+            std::cout << "Cannot send command: not connected" << std::endl;
+            return;
+        }
         CustomPacket packet(id_, CustomCommand::UNDEFINED);
         sendPacket(packet);
     }
 
     void sendInvalidPacket() {
+        if (!client_ || !client_->isConnected()) {
+            std::cout << "Cannot send packet: not connected" << std::endl;
+            return;
+        }
         // Send raw bytes that don't follow the protocol
         std::vector<uint8_t> invalid = {1, 2, 3, 4};
         if (client_ && client_->isConnected()) {
@@ -224,6 +263,9 @@ protected:
 private:
     uint32_t id_;
     std::unique_ptr<Client> client_;
+    bool should_retry_;
+    std::string last_ip_;
+    uint16_t last_port_;
 };
 
 int main(int argc, char* argv[]) {
