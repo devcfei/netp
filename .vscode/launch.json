@@ -2,11 +2,45 @@
     "version": "0.2.0",
     "configurations": [
       {
-        "name": "netp_sample(server)",
+        "name": "netp_custom(server)",
         "type": "cppvsdbg",
         "request": "launch",
-        "program": "${workspaceFolder}\\install\\Debug\\bin\\netp_sample.exe",
+        "program": "${workspaceFolder}\\install\\Debug\\bin\\netp_custom.exe",
         "args": ["server"],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        //  "console": "externalTerminal"
+      },
+      {
+        "name": "netp_custom(client)",
+        "type": "cppvsdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}\\install\\Debug\\bin\\netp_custom.exe",
+        "args": ["client", "1"],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        //  "console": "externalTerminal"
+      },
+
+      {
+        "name": "netp_echo(server)",
+        "type": "cppvsdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}\\install\\Debug\\bin\\netp_echo.exe",
+        "args": ["server"],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        //  "console": "externalTerminal"
+      },
+      {
+        "name": "netp_echo(client)",
+        "type": "cppvsdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}\\install\\Debug\\bin\\netp_echo.exe",
+        "args": ["client"],
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}",
         "environment": [],
