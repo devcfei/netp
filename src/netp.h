@@ -59,6 +59,7 @@ public:
     using PacketHandler = std::function<void(const std::vector<uint8_t>&)>;
     using ErrorHandler = std::function<void(const std::string&)>;
     using DisconnectHandler = std::function<void()>;
+    using ConnectedHandler = std::function<void()>;
 
     virtual ~Connection() = default;
 
@@ -70,6 +71,7 @@ public:
     virtual void setPacketHandler(PacketHandler handler) = 0;
     virtual void setErrorHandler(ErrorHandler handler) = 0;
     virtual void setDisconnectHandler(DisconnectHandler handler) = 0;
+    virtual void setConnectedHandler(ConnectedHandler handler) =0;
 
     // Connection management
     virtual bool isConnected() const = 0;

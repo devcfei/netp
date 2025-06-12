@@ -80,6 +80,7 @@ using ListenerPtr = std::unique_ptr<evconnlistener, decltype(&evconnlistener_fre
 // Connection implementation
 class ConnectionImpl : public Connection {
 public:
+
     ConnectionImpl(event_base* base, bufferevent* bev);
     ~ConnectionImpl() override;
 
@@ -88,6 +89,7 @@ public:
     void setPacketHandler(PacketHandler handler) override;
     void setErrorHandler(ErrorHandler handler) override;
     void setDisconnectHandler(DisconnectHandler handler) override;
+    void setConnectedHandler(ConnectedHandler handler) override;
     bool isConnected() const override;
     void disconnect() override;
     std::string getRemoteAddress() const override;
@@ -101,6 +103,7 @@ public:
     void setState(ConnectionState state) { state_ = state; }
     ConnectionState getState() const { return state_; }
 
+
 private:
     event_base* base_;  // Raw pointer - we don't own this
     BufferEventPtr bev_;
@@ -108,6 +111,7 @@ private:
     PacketHandler packet_handler_;
     ErrorHandler error_handler_;
     DisconnectHandler disconnect_handler_;
+    ConnectedHandler connected_handler_;  // New handler for connection established
     bool connected_;
     std::string remote_addr_;
     uint16_t remote_port_;

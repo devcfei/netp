@@ -116,6 +116,65 @@ private:
     std::map<ConnectionPtr, uint32_t> clients_;
 };
 
+class CustomConnection : public netp::Connection {
+public:
+    using ConnectedHandler = std::function<void()>;
+
+    CustomConnection(netp::ConnectionPtr base) : base_(base) {}
+
+    bool sendPacket(const netp::Packet& packet) override {
+        return base_->sendPacket(packet);
+    }
+
+    bool sendRawData(const std::vector<uint8_t>& data) override {
+        return base_->sendRawData(data);
+    }
+
+    void setPacketHandler(PacketHandler handler) override {
+        base_->setPacketHandler(handler);
+    }
+
+    void setErrorHandler(ErrorHandler handler) override {
+        base_->setErrorHandler(handler);
+    }
+
+    void setDisconnectHandler(DisconnectHandler handler) override {
+        base_->setDisconnectHandler(handler);
+    }
+
+    bool isConnected() const override {
+        bool connected = base_->isConnected();
+        if (connected && !connected_notified_) {
+            connected_notified_ = true;
+            if (connected_handler_) {
+                connected_handler_();
+            }
+        }
+        return connected;
+    }
+
+    void disconnect() override {
+        base_->disconnect();
+    }
+
+    std::string getRemoteAddress() const override {
+        return base_->getRemoteAddress();
+    }
+
+    uint16_t getRemotePort() const override {
+        return base_->getRemotePort();
+    }
+
+    void setConnectedHandler(ConnectedHandler handler) {
+        connected_handler_ = std::move(handler);
+    }
+
+private:
+    netp::ConnectionPtr base_;
+    ConnectedHandler connected_handler_;
+    mutable bool connected_notified_ = false;
+};
+
 class CustomClient {
 public:
     CustomClient(uint32_t id) : id_(id), should_retry_(true) {
@@ -158,7 +217,13 @@ public:
             onClose();
         });
 
-        // Don't call onConnect here - it will be called when connection is actually established
+        // Set up connected handler
+
+        conn->setConnectedHandler([this]() {
+            onConnect();
+        });
+
+
         return true;
     }
 

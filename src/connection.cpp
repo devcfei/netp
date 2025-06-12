@@ -104,6 +104,10 @@ void ConnectionImpl::setDisconnectHandler(DisconnectHandler handler) {
     disconnect_handler_ = std::move(handler);
 }
 
+void ConnectionImpl::setConnectedHandler(ConnectedHandler handler) {
+    connected_handler_ = std::move(handler);
+}
+
 bool ConnectionImpl::isConnected() const {
     return connected_;
 }
@@ -147,6 +151,11 @@ void ConnectionImpl::onConnect() {
         bufferevent_setcb(bev_.get(), readCallback, writeCallback, eventCallback, this);
         bufferevent_enable(bev_.get(), EV_READ | EV_WRITE);
         std::cout << "[Connection] Callbacks set up and events enabled" << std::endl;
+    }
+
+    // Call the connected handler if set
+    if (connected_handler_) {
+        connected_handler_();
     }
 }
 
