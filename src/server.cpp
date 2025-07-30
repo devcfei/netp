@@ -68,7 +68,7 @@ bool ServerImpl::start(uint16_t port) {
         acceptCallback,
         this,
         LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,
-        -1,  // backlog
+        1024,  // Increased backlog for high concurrency
         reinterpret_cast<struct sockaddr*>(&sin),
         sizeof(sin)
     ));
