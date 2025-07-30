@@ -8,6 +8,8 @@
 #include <ws2tcpip.h>
 #elif __linux__
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #else 
 #error "unsupported OS!"
 #endif
@@ -29,6 +31,9 @@ ClientImpl::ClientImpl()
         LOGE("[Client] Failed to initialize libevent thread support");
         throw std::runtime_error("Failed to initialize libevent thread support");
     }
+#elif __linux__
+    // Initialize libevent for pthreads on Linux
+    LinuxThreadInitializer::ensureInitialized();
 #endif
 
     // Now create the event base after WinSock is initialized
@@ -59,7 +64,9 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     host_ = host;
     port_ = port;
 
-    // Create bufferevent
+    LOGI("[Client] Starting connection to %s:%d", host.c_str(), port);
+
+    // Create bufferevent first
     auto bev = bufferevent_socket_new(
         base_.get(),
         -1,
@@ -71,11 +78,14 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
         return false;
     }
 
+    LOGI("[Client] Created bufferevent successfully");
+
     // Set up the connection
     connection_ = std::make_shared<ConnectionImpl>(base_.get(), bev);
 
-    // Set up the callbacks for the bufferevent
+    // Set up the callbacks for the bufferevent BEFORE starting connection
     bufferevent_setcb(bev, nullptr, nullptr, connectCallback, this);
+    LOGI("[Client] Set up connection callbacks");
 
     // Start connection
     struct sockaddr_in sin;
@@ -89,6 +99,7 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
         return false;
     }
 
+    LOGI("[Client] Initiating connection...");
     if (bufferevent_socket_connect(bev,
                                  reinterpret_cast<struct sockaddr*>(&sin),
                                  sizeof(sin)) < 0) {
@@ -97,7 +108,9 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
         return false;
     }
 
-    // Start the event loop in a separate thread
+    LOGI("[Client] Connection initiated, starting event loop");
+
+    // Start the event loop in a separate thread AFTER setting up connection
     event_thread_running_ = true;
     event_thread_ = std::thread([this]() {
         LOGI("[Client] Starting event loop");
@@ -106,6 +119,7 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
         event_thread_running_ = false;
     });
 
+    LOGI("[Client] Event loop thread started");
     return true;
 }
 
@@ -137,40 +151,63 @@ bool ClientImpl::isConnected() const {
 
 void ClientImpl::connectCallback(struct bufferevent* bev, short events, void* ctx) {
     auto client = static_cast<ClientImpl*>(ctx);
+    
+    LOGI("[Client] connectCallback called with events: 0x%x", events);
+    
+    // Safety check
+    if (!client) {
+        LOGE("[Client] connectCallback called with null client");
+        return;
+    }
 
     if (events & BEV_EVENT_CONNECTED) {
         LOGI("[Client] Connection established to %s:%d", client->host_.c_str(), client->port_);
         // Now that we're actually connected, mark the connection as established
         if (client->connection_) {
-            // Let the connection set up its callbacks and mark itself as connected
-            client->connection_->onConnect();
+            try {
+                // Let the connection set up its callbacks and mark itself as connected
+                client->connection_->onConnect();
+                LOGI("[Client] Connection setup completed successfully");
+            } catch (const std::exception& e) {
+                LOGE("[Client] Exception in onConnect: %s", e.what());
+            }
+        } else {
+            LOGE("[Client] Connection object is null in connectCallback");
         }
     } else if (events & BEV_EVENT_ERROR) {
         int err = EVUTIL_SOCKET_ERROR();
         LOGE("[Client] Connection error to %s:%d: %d", client->host_.c_str(), client->port_, err);
         
         if (client->connection_) {
-            // Report the error through the connection's error handler
-            client->connection_->onError(events);
-            
-            // Set internal state but keep the object alive
-            client->connection_->setState(ConnectionState::Failed);
-            
-            // Break the event loop
-            if (client->base_) {
-                event_base_loopbreak(client->base_.get());
+            try {
+                // Report the error through the connection's error handler
+                client->connection_->onError(events);
+                
+                // Set internal state but keep the object alive
+                client->connection_->setState(ConnectionState::Failed);
+            } catch (const std::exception& e) {
+                LOGE("[Client] Exception in onError: %s", e.what());
             }
+        }
+        
+        // Break the event loop
+        if (client->base_) {
+            event_base_loopbreak(client->base_.get());
         }
     } else {
         // Other events like EOF
         LOGI("[Client] Connection event: 0x%x", events);
         if (client->connection_) {
-            client->connection_->setState(ConnectionState::Failed);
-            
-            // Break the event loop
-            if (client->base_) {
-                event_base_loopbreak(client->base_.get());
+            try {
+                client->connection_->setState(ConnectionState::Failed);
+            } catch (const std::exception& e) {
+                LOGE("[Client] Exception in event handling: %s", e.what());
             }
+        }
+        
+        // Break the event loop
+        if (client->base_) {
+            event_base_loopbreak(client->base_.get());
         }
     }
 }

@@ -2,9 +2,16 @@
 #include <netpp.h>
 #include <thread>
 #include <cstring>
+#include <mutex>
+#include <unordered_set>
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
+#elif __linux__
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #endif
 
 namespace netp {
@@ -25,6 +32,9 @@ ServerImpl::ServerImpl()
         LOGE("[Server] Failed to initialize libevent thread support");
         throw std::runtime_error("Failed to initialize libevent thread support");
     }
+#elif __linux__
+    // Initialize libevent for pthreads on Linux
+    LinuxThreadInitializer::ensureInitialized();
 #endif
 
     // Now create the event base after WinSock is initialized
@@ -116,6 +126,17 @@ void ServerImpl::stop() {
         // Stop accepting new connections
         listener_.reset();
         
+        // Clean up all active connections
+        {
+            std::lock_guard<std::mutex> lock(connections_mutex_);
+            for (auto& conn : active_connections_) {
+                if (conn) {
+                    conn->disconnect();
+                }
+            }
+            active_connections_.clear();
+        }
+        
         // Wait for event loop to finish
         if (event_thread_.joinable()) {
             event_thread_.join();
@@ -139,6 +160,42 @@ bool ServerImpl::isRunning() const {
 
 uint16_t ServerImpl::getPort() const {
     return port_;
+}
+
+void ServerImpl::removeConnection(ConnectionPtr conn) {
+    if (!conn) {
+        LOGW("[Server] Attempted to remove null connection");
+        return;
+    }
+    
+    std::lock_guard<std::mutex> lock(connections_mutex_);
+    auto it = active_connections_.find(conn);
+    if (it != active_connections_.end()) {
+        active_connections_.erase(it);
+        LOGI("[Server] Removed connection from tracking, active connections: %zu", active_connections_.size());
+    } else {
+        LOGW("[Server] Connection not found in tracking set");
+    }
+}
+
+void ServerImpl::removeConnectionByPtr(ConnectionImpl* conn_ptr) {
+    if (!conn_ptr) {
+        LOGW("[Server] Attempted to remove null connection pointer");
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(connections_mutex_);
+    auto it = std::find_if(active_connections_.begin(), active_connections_.end(),
+                            [conn_ptr](const ConnectionPtr& conn) {
+                                return conn.get() == conn_ptr;
+                            });
+
+    if (it != active_connections_.end()) {
+        active_connections_.erase(it);
+        LOGI("[Server] Removed connection from tracking by pointer, active connections: %zu", active_connections_.size());
+    } else {
+        LOGW("[Server] Connection not found in tracking set by pointer");
+    }
 }
 
 void ServerImpl::acceptCallback(struct evconnlistener* listener,
@@ -193,6 +250,13 @@ void ServerImpl::acceptCallback(struct evconnlistener* listener,
     // Create connection object
     auto conn = std::make_shared<ConnectionImpl>(base, bev);
     
+    // Add to active connections tracking
+    {
+        std::lock_guard<std::mutex> lock(server->connections_mutex_);
+        server->active_connections_.insert(conn);
+        LOGI("[Server] Added connection to tracking, active connections: %zu", server->active_connections_.size());
+    }
+    
     // Set up the connection
     conn->onConnect();  // This will set up callbacks and mark as connected
     
@@ -204,6 +268,12 @@ void ServerImpl::acceptCallback(struct evconnlistener* listener,
     LOGI("[Server] Bufferevent enabled events after connection creation: READ=%s WRITE=%s",
          ((enabled & EV_READ) ? "yes" : "no"),
          ((enabled & EV_WRITE) ? "yes" : "no"));
+
+    // Set up disconnect handler to remove from tracking
+    conn->setDisconnectHandler([server, conn_id = conn.get()]() {
+        // Use raw pointer to avoid circular references
+        server->removeConnectionByPtr(conn_id);
+    });
 
     // Notify handler
     if (server->connection_handler_) {

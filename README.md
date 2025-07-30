@@ -20,7 +20,24 @@ A modern C++ library for packet-based TCP communication with support for both cl
 
 ## Building
 
+### Linux
 ```bash
+# Using the provided build script
+./mk.sh
+
+# Or manually
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
+
+### Windows
+```bash
+# Using the provided build script
+mk.cmd
+
+# Or manually
 mkdir build
 cd build
 cmake ..
@@ -95,6 +112,28 @@ The library includes a sample echo server and client implementation. To run the 
 
 # In another terminal, run the client
 ./netp_sample client
+```
+
+## Testing
+
+### Linux
+```bash
+# Run the comprehensive test suite
+./test.sh
+
+# Or run individual tests
+./install/Debug/bin/netp_echo server &
+./install/Debug/bin/netp_echo client
+```
+
+### Windows
+```bash
+# Run the comprehensive test suite
+test.bat
+
+# Or run individual tests
+install\Debug\bin\netp_echo.exe server
+install\Debug\bin\netp_echo.exe client
 ```
 
 ## License

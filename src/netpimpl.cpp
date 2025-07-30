@@ -4,6 +4,10 @@
 
 #ifdef _WIN32
 #include <winsock2.h>
+#elif __linux__
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #endif
 
 namespace netp {

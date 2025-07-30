@@ -46,6 +46,7 @@ target_link_libraries(netp
         event
         event_core
         event_extra
+        event_pthreads
     )
 
 if(WIN32)
@@ -53,6 +54,11 @@ target_link_libraries(netp
     PRIVATE
         ws2_32
         iphlpapi
+)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+target_link_libraries(netp
+    PRIVATE
+        pthread
 )
 endif()
 
