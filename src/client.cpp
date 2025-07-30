@@ -22,6 +22,8 @@ ClientImpl::ClientImpl()
     , port_(0)
     , event_thread_running_(false)
 {
+    LOGI("[Client] Initializing client...");
+    
 #ifdef _WIN32
     // Initialize WinSock first
     WinSockInitializer::ensureInitialized();
@@ -33,14 +35,23 @@ ClientImpl::ClientImpl()
     }
 #elif __linux__
     // Initialize libevent for pthreads on Linux
-    LinuxThreadInitializer::ensureInitialized();
+    try {
+        LinuxThreadInitializer::ensureInitialized();
+        LOGI("[Client] Linux thread initialization successful");
+    } catch (const std::exception& e) {
+        LOGE("[Client] Linux thread initialization failed: %s", e.what());
+        throw;
+    }
 #endif
 
-    // Now create the event base after WinSock is initialized
+    // Now create the event base after initialization
+    LOGI("[Client] Creating event base...");
     base_.reset(event_base_new());
     if (!base_) {
+        LOGE("[Client] Failed to create event base");
         throw std::runtime_error("Failed to create event base");
     }
+    LOGI("[Client] Event base created successfully");
 }
 
 ClientImpl::~ClientImpl() {
@@ -67,6 +78,7 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     LOGI("[Client] Starting connection to %s:%d", host.c_str(), port);
 
     // Create bufferevent first
+    LOGI("[Client] Creating bufferevent...");
     auto bev = bufferevent_socket_new(
         base_.get(),
         -1,
@@ -81,7 +93,18 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     LOGI("[Client] Created bufferevent successfully");
 
     // Set up the connection
-    connection_ = std::make_shared<ConnectionImpl>(base_.get(), bev);
+    try {
+        connection_ = std::make_shared<ConnectionImpl>(base_.get(), bev);
+        LOGI("[Client] Connection object created successfully");
+    } catch (const std::exception& e) {
+        LOGE("[Client] Failed to create connection object: %s", e.what());
+        bufferevent_free(bev);
+        return false;
+    } catch (...) {
+        LOGE("[Client] Unknown exception creating connection object");
+        bufferevent_free(bev);
+        return false;
+    }
 
     // Set up the callbacks for the bufferevent BEFORE starting connection
     bufferevent_setcb(bev, nullptr, nullptr, connectCallback, this);
@@ -112,6 +135,8 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
 
     // Start the event loop in a separate thread AFTER setting up connection
     event_thread_running_ = true;
+    
+    // Start event loop thread
     event_thread_ = std::thread([this]() {
         LOGI("[Client] Starting event loop");
         event_base_dispatch(base_.get());

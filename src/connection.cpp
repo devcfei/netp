@@ -183,14 +183,25 @@ void ConnectionImpl::onConnect() {
 
     // Set up the callbacks now that we're connected
     if (bev_) {
-        bufferevent_setcb(bev_.get(), readCallback, writeCallback, eventCallback, this);
-        bufferevent_enable(bev_.get(), EV_READ | EV_WRITE);
-        LOGI("[Connection] Callbacks set up and events enabled");
+        try {
+            bufferevent_setcb(bev_.get(), readCallback, writeCallback, eventCallback, this);
+            bufferevent_enable(bev_.get(), EV_READ | EV_WRITE);
+            LOGI("[Connection] Callbacks set up and events enabled");
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception setting up callbacks: %s", e.what());
+            connected_ = false;
+            state_ = ConnectionState::Failed;
+            return;
+        }
     }
 
     // Call the connected handler if set
     if (connected_handler_) {
-        connected_handler_();
+        try {
+            connected_handler_();
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception in connected handler: %s", e.what());
+        }
     }
 }
 
@@ -241,10 +252,16 @@ void ConnectionImpl::onClose() {
 
 void ConnectionImpl::clearCallbacks() {
     if (bev_) {
-        // Disable all events first
-        bufferevent_disable(bev_.get(), EV_READ | EV_WRITE);
-        // Clear all callbacks
-        bufferevent_setcb(bev_.get(), nullptr, nullptr, nullptr, nullptr);
+        try {
+            // Disable all events first
+            bufferevent_disable(bev_.get(), EV_READ | EV_WRITE);
+            // Clear all callbacks
+            bufferevent_setcb(bev_.get(), nullptr, nullptr, nullptr, nullptr);
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception clearing callbacks: %s", e.what());
+        } catch (...) {
+            LOGE("[Connection] Unknown exception clearing callbacks");
+        }
     }
     
     // Clear handler functions
@@ -301,23 +318,33 @@ void ConnectionImpl::onRead() {
     LOGV("[Connection] Available data: %zu bytes", len);
     
     if (len > 0) {
-        std::vector<uint8_t> data(len);
-        if (evbuffer_remove(input, data.data(), len) != static_cast<int>(len)) {
-            LOGE("[Connection] Failed to read data from input buffer");
-            return;
-        }
-        LOGV("[Connection] Read %zu bytes from buffer", len);
-        
-        auto packets = framer_.processData(data.data(), data.size());
-        LOGV("[Connection] Processed %zu complete packets", packets.size());
-        
-        for (const auto& packet : packets) {
-            LOGV("[Connection] Processing packet of size %zu bytes", packet.size());
-            if (packet_handler_) {
-                packet_handler_(packet);
-            } else {
-                LOGW("[Connection] Warning: No packet handler set");
+        try {
+            std::vector<uint8_t> data(len);
+            if (evbuffer_remove(input, data.data(), len) != static_cast<int>(len)) {
+                LOGE("[Connection] Failed to read data from input buffer");
+                return;
             }
+            LOGV("[Connection] Read %zu bytes from buffer", len);
+            
+            auto packets = framer_.processData(data.data(), data.size());
+            LOGV("[Connection] Processed %zu complete packets", packets.size());
+            
+            for (const auto& packet : packets) {
+                LOGV("[Connection] Processing packet of size %zu bytes", packet.size());
+                if (packet_handler_) {
+                    try {
+                        packet_handler_(packet);
+                    } catch (const std::exception& e) {
+                        LOGE("[Connection] Exception in packet handler: %s", e.what());
+                    }
+                } else {
+                    LOGW("[Connection] Warning: No packet handler set");
+                }
+            }
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception in onRead: %s", e.what());
+        } catch (...) {
+            LOGE("[Connection] Unknown exception in onRead");
         }
     }
 }

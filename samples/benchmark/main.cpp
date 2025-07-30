@@ -52,9 +52,20 @@ void checkSystemLimits() {
         }
     }
     
+    // Check thread stack size limit
+    if (getrlimit(RLIMIT_STACK, &limits) == 0) {
+        log("Stack size limit - Current: " + std::to_string(limits.rlim_cur) + 
+            ", Maximum: " + std::to_string(limits.rlim_max));
+        
+        if (limits.rlim_cur < 8192 * 1024) { // 8MB minimum
+            log("WARNING: Stack size limit is low. Consider increasing with: ulimit -s 8192");
+            has_warnings = true;
+        }
+    }
+    
     if (has_warnings) {
         log("WARNING: System limits may cause issues with high concurrency tests");
-        log("Recommendation: Run 'ulimit -n 4096 && ulimit -u 4096' before testing");
+        log("Recommendation: Run 'ulimit -n 4096 && ulimit -u 4096 && ulimit -s 8192' before testing");
     }
 #endif
     
@@ -135,9 +146,16 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
     try {
         auto client = netp::createClient();
         bool should_run = true;
-        const auto reconnect_delay = std::chrono::seconds(1);  // Reduced delay for faster reconnection
+        
+        // Different reconnect delays for different OS
+#ifdef _WIN32
+        const auto reconnect_delay = std::chrono::seconds(1);
+#else
+        const auto reconnect_delay = std::chrono::seconds(2); // Longer delay for Linux
+#endif
+        
         int reconnect_count = 0;
-        const int max_reconnect_attempts = 30;  // Reduced limit for better resource management
+        const int max_reconnect_attempts = 20;  // Reduced limit for better resource management
         int successful_connections = 0;
         int failed_connections = 0;
         bool client_connected_at_least_once = false;
@@ -175,6 +193,15 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
                     conn->setPacketHandler([&stats](const std::vector<uint8_t>& data) {
                         stats.messages_received++;
                         stats.bytes_received += data.size();
+                        
+                        // Check if this is a proactive packet from server
+                        BenchmarkPacket packet;
+                        if (packet.deserialize(data.data(), data.size())) {
+                            std::string payload = packet.getPayload();
+                            if (payload.find("PROACTIVE_") == 0) {
+                                log("Client received proactive packet from server: " + payload.substr(0, 50) + "...");
+                            }
+                        }
                     });
 
                     // Set up error handler
@@ -251,6 +278,9 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
     } catch (const std::exception& e) {
         log("Benchmark client fatal error: " + std::string(e.what()));
         stats.clients_aborted++;
+    } catch (...) {
+        log("Benchmark client unknown fatal error");
+        stats.clients_aborted++;
     }
 }
 
@@ -262,10 +292,11 @@ void runServer() {
         uint16_t remote_port = conn->getRemotePort();
         log("New connection from " + remote_addr + ":" + std::to_string(remote_port));
 
-        // Set up packet handler - just echo back the packet
+        // Set up packet handler - echo back the packet and also send proactive packets
         conn->setPacketHandler([conn](const std::vector<uint8_t>& data) {
             BenchmarkPacket packet;
             if (packet.deserialize(data.data(), data.size())) {
+                // Echo back the received packet
                 conn->sendPacket(packet);
             }
         });
@@ -281,6 +312,45 @@ void runServer() {
             uint16_t port = conn->getRemotePort();
             log("Client disconnected: " + addr + ":" + std::to_string(port));
         });
+
+        // Start proactive packet sending thread for this connection
+        std::thread([conn, remote_addr, remote_port]() {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<size_t> msg_size_dist(16, 1024);
+            std::uniform_int_distribution<int> interval_dist(1000, 5000); // 1-5 seconds
+            
+            int packet_counter = 0;
+            auto last_packet_time = std::chrono::steady_clock::now();
+            
+            while (conn->isConnected()) {
+                auto now = std::chrono::steady_clock::now();
+                auto time_since_last = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_packet_time);
+                
+                // Send proactive packet every 1-5 seconds
+                if (time_since_last.count() >= interval_dist(gen)) {
+                    std::string proactive_msg = "PROACTIVE_" + std::to_string(packet_counter++) + "_" + 
+                                             generateRandomString(msg_size_dist(gen));
+                    BenchmarkPacket proactive_packet(proactive_msg);
+                    
+                    if (conn->sendPacket(proactive_packet)) {
+                        log("Server sent proactive packet #" + std::to_string(packet_counter) + 
+                            " to " + remote_addr + ":" + std::to_string(remote_port) + 
+                            " (size: " + std::to_string(proactive_msg.size()) + " bytes)");
+                    } else {
+                        log("Server failed to send proactive packet to " + remote_addr + ":" + std::to_string(remote_port));
+                        break; // Connection likely lost
+                    }
+                    
+                    last_packet_time = now;
+                }
+                
+                // Check connection status every 100ms
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            
+            log("Proactive packet thread ended for " + remote_addr + ":" + std::to_string(remote_port));
+        }).detach();
     });
 
     server->setErrorHandler([](const std::string& error) {
@@ -291,6 +361,7 @@ void runServer() {
     if (server->start(12345)) {
         log("Benchmark server started on port 12345");
         log("Server configured with backlog=1024 for high concurrency");
+        log("Server will send proactive packets every 1-5 seconds to test client disconnection scenarios");
         
         // Keep the server running
         while (true) {
@@ -308,8 +379,12 @@ void runBenchmark(size_t num_clients, size_t min_msg_size, size_t max_msg_size, 
     // Check system limits first
     checkSystemLimits();
     
-    // Limit number of clients based on system capabilities
-    size_t max_recommended_clients = 1000; // Conservative limit for thread-per-client approach
+    // Limit number of clients based on system capabilities and OS
+#ifdef _WIN32
+    size_t max_recommended_clients = 1000; // Windows can handle more threads
+#else
+    size_t max_recommended_clients = 500; // More conservative for Linux
+#endif
     if (num_clients > max_recommended_clients) {
         log("Warning: Requested " + std::to_string(num_clients) + " clients, but limiting to " + 
             std::to_string(max_recommended_clients) + " for stability");
@@ -322,7 +397,12 @@ void runBenchmark(size_t num_clients, size_t min_msg_size, size_t max_msg_size, 
     log("Starting benchmark with " + std::to_string(num_clients) + " clients");
     log("Message size range: " + std::to_string(min_msg_size) + " - " + std::to_string(max_msg_size) + " bytes");
     log("Duration: " + std::to_string(duration_seconds) + " seconds");
+    
+#ifdef _WIN32
     log("Note: Clients start with 100ms delays between them");
+#else
+    log("Note: Clients start with 200ms delays between them (Linux optimization)");
+#endif
     
     // Start all clients
     for (size_t i = 0; i < num_clients; ++i) {
@@ -333,8 +413,12 @@ void runBenchmark(size_t num_clients, size_t min_msg_size, size_t max_msg_size, 
                                       std::chrono::seconds(duration_seconds),
                                       std::ref(stats));
             
-            // Small delay between client starts to prevent connection storm
+            // Different delays for different OS
+#ifdef _WIN32
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+#else
+            std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Longer delay for Linux
+#endif
             
             // Log progress every 10 clients
             if ((i + 1) % 10 == 0) {
