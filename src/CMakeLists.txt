@@ -54,6 +54,12 @@ target_link_libraries(netp
         ws2_32
         iphlpapi
 )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+target_link_libraries(netp
+    PRIVATE
+        pthread
+        event_pthreads
+)
 endif()
 
 

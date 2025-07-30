@@ -27,16 +27,45 @@ void checkSystemLimits() {
 #ifdef _WIN32
     // Windows doesn't have the same limits, but we can check some things
     log("Running on Windows - limits may vary");
+    log("Warning: Windows may have different thread limits than Linux");
 #else
     struct rlimit limits;
+    bool has_warnings = false;
+    
     if (getrlimit(RLIMIT_NOFILE, &limits) == 0) {
         log("File descriptor limit - Current: " + std::to_string(limits.rlim_cur) + 
             ", Maximum: " + std::to_string(limits.rlim_max));
+        
+        if (limits.rlim_cur < 1000) {
+            log("WARNING: File descriptor limit is low. Consider increasing with: ulimit -n 4096");
+            has_warnings = true;
+        }
     }
     
     if (getrlimit(RLIMIT_NPROC, &limits) == 0) {
         log("Process limit - Current: " + std::to_string(limits.rlim_cur) + 
             ", Maximum: " + std::to_string(limits.rlim_max));
+        
+        if (limits.rlim_cur < 1000) {
+            log("WARNING: Process limit is low. Consider increasing with: ulimit -u 4096");
+            has_warnings = true;
+        }
+    }
+    
+    // Check thread stack size limit
+    if (getrlimit(RLIMIT_STACK, &limits) == 0) {
+        log("Stack size limit - Current: " + std::to_string(limits.rlim_cur) + 
+            ", Maximum: " + std::to_string(limits.rlim_max));
+        
+        if (limits.rlim_cur < 8192 * 1024) { // 8MB minimum
+            log("WARNING: Stack size limit is low. Consider increasing with: ulimit -s 8192");
+            has_warnings = true;
+        }
+    }
+    
+    if (has_warnings) {
+        log("WARNING: System limits may cause issues with high concurrency tests");
+        log("Recommendation: Run 'ulimit -n 4096 && ulimit -u 4096 && ulimit -s 8192' before testing");
     }
 #endif
     
@@ -114,123 +143,136 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
                        size_t min_msg_size, size_t max_msg_size,
                        std::chrono::seconds duration,
                        BenchmarkStats& stats) {
-    auto client = netp::createClient();
-    bool should_run = true;
-    const auto reconnect_delay = std::chrono::seconds(1);  // Reduced delay for faster reconnection
-    int reconnect_count = 0;
-    const int max_reconnect_attempts = 50;  // Increased limit for high concurrency scenarios
-    int successful_connections = 0;
-    int failed_connections = 0;
-    bool client_connected_at_least_once = false;
-    bool client_completed_successfully = false;
-    
-    // Get client start time for logging
-    auto client_start_time = std::chrono::steady_clock::now();
-    auto client_start_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        client_start_time - stats.start_time).count();
-    
-    // Increment clients started counter
-    stats.clients_started++;
-    
-    auto end_time = std::chrono::steady_clock::now() + duration;
-    
-    while (should_run && std::chrono::steady_clock::now() < end_time) {
-        stats.total_connection_attempts++;
+    try {
+        auto client = netp::createClient();
+        bool should_run = true;
         
-        if (client->connect(host, port)) {
-            successful_connections++;
-            if (!client_connected_at_least_once) {
-                client_connected_at_least_once = true;
-                stats.clients_connected++;
-            }
-            log("Benchmark client connected to server (successful connections: " + std::to_string(successful_connections) + ")");
-            reconnect_count = 0;  // Reset reconnect counter on successful connection
+        // Different reconnect delays for different OS
+#ifdef _WIN32
+        const auto reconnect_delay = std::chrono::seconds(1);
+#else
+        const auto reconnect_delay = std::chrono::seconds(2); // Longer delay for Linux
+#endif
+        
+        int reconnect_count = 0;
+        const int max_reconnect_attempts = 20;  // Reduced limit for better resource management
+        int successful_connections = 0;
+        int failed_connections = 0;
+        bool client_connected_at_least_once = false;
+        bool client_completed_successfully = false;
+        
+        // Get client start time for logging
+        auto client_start_time = std::chrono::steady_clock::now();
+        auto client_start_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            client_start_time - stats.start_time).count();
+        
+        // Increment clients started counter
+        stats.clients_started++;
+        
+        auto end_time = std::chrono::steady_clock::now() + duration;
+        
+        while (should_run && std::chrono::steady_clock::now() < end_time) {
+            stats.total_connection_attempts++;
             
-            auto conn = client->getConnection();
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<size_t> msg_size_dist(min_msg_size, max_msg_size);
+            try {
+                if (client->connect(host, port)) {
+                    successful_connections++;
+                    if (!client_connected_at_least_once) {
+                        client_connected_at_least_once = true;
+                        stats.clients_connected++;
+                    }
+                    log("Benchmark client connected to server (successful connections: " + std::to_string(successful_connections) + ")");
+                    reconnect_count = 0;  // Reset reconnect counter on successful connection
+                    
+                    auto conn = client->getConnection();
+                    std::random_device rd;
+                    std::mt19937 gen(rd());
+                    std::uniform_int_distribution<size_t> msg_size_dist(min_msg_size, max_msg_size);
 
-            // Set up packet handler
-            conn->setPacketHandler([&stats](const std::vector<uint8_t>& data) {
-                stats.messages_received++;
-                stats.bytes_received += data.size();
-            });
+                    // Set up packet handler
+                    conn->setPacketHandler([&stats](const std::vector<uint8_t>& data) {
+                        stats.messages_received++;
+                        stats.bytes_received += data.size();
+                    });
 
-            // Set up error handler
-            conn->setErrorHandler([](const std::string& error) {
-                log("Benchmark client error: " + error);
-            });
+                    // Set up error handler
+                    conn->setErrorHandler([](const std::string& error) {
+                        log("Benchmark client error: " + error);
+                    });
 
-            // Set up disconnect handler
-            conn->setDisconnectHandler([&should_run]() {
-                log("Benchmark client disconnected from server");
-            });
+                    // Set up disconnect handler
+                    conn->setDisconnectHandler([&should_run]() {
+                        log("Benchmark client disconnected from server");
+                    });
 
-            // Wait a moment for connection to stabilize
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    // Wait a moment for connection to stabilize
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-            while (std::chrono::steady_clock::now() < end_time && client->isConnected()) {
-                std::string msg = generateRandomString(msg_size_dist(gen));
-                BenchmarkPacket packet(msg);
-                
-                if (conn->sendPacket(packet)) {
-                    stats.messages_sent++;
-                    stats.bytes_sent += msg.size();
+                    while (std::chrono::steady_clock::now() < end_time && client->isConnected()) {
+                        std::string msg = generateRandomString(msg_size_dist(gen));
+                        BenchmarkPacket packet(msg);
+                        
+                        if (conn->sendPacket(packet)) {
+                            stats.messages_sent++;
+                            stats.bytes_sent += msg.size();
+                        } else {
+                            log("Benchmark client failed to send packet, will attempt reconnect");
+                            break;
+                        }
+                        
+                        // Small delay to prevent overwhelming the server
+                        std::this_thread::sleep_for(std::chrono::microseconds(100));
+                    }
+                    
+                    // Disconnect cleanly before reconnecting
+                    client->disconnect();
+                    
                 } else {
-                    log("Benchmark client failed to send packet, will attempt reconnect");
-                    break;
+                    reconnect_count++;
+                    failed_connections++;
+                    stats.total_connection_failures++;
+                    
+                    if (reconnect_count > max_reconnect_attempts) {
+                        log("Benchmark client exceeded maximum reconnection attempts (" + std::to_string(max_reconnect_attempts) + "), stopping");
+                        log("Final stats - Successful connections: " + std::to_string(successful_connections) + ", Failed attempts: " + std::to_string(failed_connections));
+                        break;
+                    }
+                    
+                    log("Benchmark client connection attempt " + std::to_string(reconnect_count) + 
+                        " failed (total failed: " + std::to_string(failed_connections) + "), retrying in " + std::to_string(reconnect_delay.count()) + " seconds...");
+                    std::this_thread::sleep_for(reconnect_delay);
                 }
-                
-                // Small delay to prevent overwhelming the server
-                std::this_thread::sleep_for(std::chrono::microseconds(100));
+            } catch (const std::exception& e) {
+                log("Benchmark client exception during connection: " + std::string(e.what()));
+                failed_connections++;
+                stats.total_connection_failures++;
+                std::this_thread::sleep_for(reconnect_delay);
             }
-            
-            // Disconnect cleanly before reconnecting
-            client->disconnect();
-            
-        } else {
-            reconnect_count++;
-            failed_connections++;
-            stats.total_connection_failures++;
-            
-            if (reconnect_count > max_reconnect_attempts) {
-                log("Benchmark client exceeded maximum reconnection attempts (" + std::to_string(max_reconnect_attempts) + "), stopping");
-                log("Final stats - Successful connections: " + std::to_string(successful_connections) + ", Failed attempts: " + std::to_string(failed_connections));
-                break;
-            }
-            
-            log("Benchmark client connection attempt " + std::to_string(reconnect_count) + 
-                " failed (total failed: " + std::to_string(failed_connections) + "), retrying in " + std::to_string(reconnect_delay.count()) + " seconds...");
-            std::this_thread::sleep_for(reconnect_delay);
         }
-    }
-    
-    client->disconnect();
-    
-    // Calculate client runtime
-    auto client_end_time = std::chrono::steady_clock::now();
-    auto client_runtime_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        client_end_time - client_start_time).count();
-    
-    // Determine if client completed successfully or was aborted
-    if (std::chrono::steady_clock::now() >= end_time) {
-        client_completed_successfully = true;
-        stats.clients_completed++;
-    } else {
+        
+        client->disconnect();
+        
+        // Calculate client runtime
+        auto client_end_time = std::chrono::steady_clock::now();
+        auto client_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            client_end_time - client_start_time).count();
+        
+        if (client_connected_at_least_once) {
+            stats.clients_completed++;
+            client_completed_successfully = true;
+            log("Benchmark client completed successfully after " + std::to_string(client_duration) + "ms");
+        } else {
+            stats.clients_failed++;
+            log("Benchmark client failed to connect after " + std::to_string(client_duration) + "ms");
+        }
+        
+    } catch (const std::exception& e) {
+        log("Benchmark client fatal error: " + std::string(e.what()));
+        stats.clients_aborted++;
+    } catch (...) {
+        log("Benchmark client unknown fatal error");
         stats.clients_aborted++;
     }
-    
-    // If client never connected, mark as failed
-    if (!client_connected_at_least_once) {
-        stats.clients_failed++;
-    }
-    
-    log("Benchmark client finished - Started at +" + std::to_string(client_start_ms) + "ms, " +
-        "Runtime: " + std::to_string(client_runtime_ms) + "ms, " +
-        "Successful connections: " + std::to_string(successful_connections) + ", " +
-        "Failed attempts: " + std::to_string(failed_connections) + ", " +
-        "Status: " + (client_completed_successfully ? "COMPLETED" : "ABORTED"));
 }
 
 void runServer() {
@@ -287,21 +329,55 @@ void runBenchmark(size_t num_clients, size_t min_msg_size, size_t max_msg_size, 
     // Check system limits first
     checkSystemLimits();
     
+    // Limit number of clients based on system capabilities and OS
+#ifdef _WIN32
+    size_t max_recommended_clients = 1000; // Windows can handle more threads
+#else
+    size_t max_recommended_clients = 500; // More conservative for Linux
+#endif
+    if (num_clients > max_recommended_clients) {
+        log("Warning: Requested " + std::to_string(num_clients) + " clients, but limiting to " + 
+            std::to_string(max_recommended_clients) + " for stability");
+        num_clients = max_recommended_clients;
+    }
+    
     std::vector<std::thread> client_threads;
+    client_threads.reserve(num_clients); // Pre-allocate to avoid reallocation
+    
     log("Starting benchmark with " + std::to_string(num_clients) + " clients");
     log("Message size range: " + std::to_string(min_msg_size) + " - " + std::to_string(max_msg_size) + " bytes");
     log("Duration: " + std::to_string(duration_seconds) + " seconds");
+    
+#ifdef _WIN32
     log("Note: Clients start with 100ms delays between them");
+#else
+    log("Note: Clients start with 200ms delays between them (Linux optimization)");
+#endif
     
     // Start all clients
     for (size_t i = 0; i < num_clients; ++i) {
-        client_threads.emplace_back(runBenchmarkClient,
-                                  "127.0.0.1", 12345,
-                                  min_msg_size, max_msg_size,
-                                  std::chrono::seconds(duration_seconds),
-                                  std::ref(stats));
-        // Small delay between client starts to prevent connection storm
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        try {
+            client_threads.emplace_back(runBenchmarkClient,
+                                      "127.0.0.1", 12345,
+                                      min_msg_size, max_msg_size,
+                                      std::chrono::seconds(duration_seconds),
+                                      std::ref(stats));
+            
+            // Different delays for different OS
+#ifdef _WIN32
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+#else
+            std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Longer delay for Linux
+#endif
+            
+            // Log progress every 10 clients
+            if ((i + 1) % 10 == 0) {
+                log("Started " + std::to_string(i + 1) + "/" + std::to_string(num_clients) + " clients");
+            }
+        } catch (const std::exception& e) {
+            log("Failed to start client " + std::to_string(i) + ": " + e.what());
+            stats.clients_failed++;
+        }
     }
     
     log("All " + std::to_string(num_clients) + " clients started. Monitoring progress...");
@@ -326,9 +402,11 @@ void runBenchmark(size_t num_clients, size_t min_msg_size, size_t max_msg_size, 
     
     log("Benchmark duration completed. Waiting for remaining clients to finish...");
     
-    // Wait for all clients to finish
+    // Wait for all clients to finish with timeout
     for (auto& thread : client_threads) {
-        thread.join();
+        if (thread.joinable()) {
+            thread.join();
+        }
     }
     
     log("All clients finished. Generating final report...");

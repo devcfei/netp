@@ -9,6 +9,11 @@
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
+#elif __linux__
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #endif
 
 namespace netp {
@@ -18,6 +23,13 @@ namespace impl {
 static void readCallback(struct bufferevent* bev, void* ctx) {
     LOGV("[Connection] readCallback triggered");
     auto conn = static_cast<ConnectionImpl*>(ctx);
+    
+    // Check if connection is still valid
+    if (!conn || conn->getState() == ConnectionState::Closed) {
+        LOGV("[Connection] Read callback called on invalid/closed connection");
+        return;
+    }
+    
     conn->onRead();
 }
 
@@ -28,6 +40,12 @@ static void writeCallback(struct bufferevent* bev, void* ctx) {
 static void eventCallback(struct bufferevent* bev, short events, void* ctx) {
     LOGV("[Connection] eventCallback triggered with events: 0x%x", events);
     auto conn = static_cast<ConnectionImpl*>(ctx);
+    
+    // Check if connection is still valid
+    if (!conn || conn->getState() == ConnectionState::Closed) {
+        LOGV("[Connection] Event callback called on invalid/closed connection");
+        return;
+    }
     
     if (events & BEV_EVENT_EOF) {
         LOGI("[Connection] EOF received");
@@ -48,6 +66,8 @@ ConnectionImpl::ConnectionImpl(event_base* base, bufferevent* bev)
 
 #ifdef _WIN32
     WinSockInitializer::ensureInitialized();
+#elif __linux__
+    LinuxThreadInitializer::ensureInitialized();
 #endif
 
     if (!bev) {
@@ -56,7 +76,11 @@ ConnectionImpl::ConnectionImpl(event_base* base, bufferevent* bev)
 }
 
 ConnectionImpl::~ConnectionImpl() {
-    disconnect();
+    // Clear callbacks first to prevent any callbacks from being called during destruction
+    clearCallbacks();
+    
+    // The bufferevent will be automatically freed by the unique_ptr
+    // No need to manually call bufferevent_free
 }
 
 bool ConnectionImpl::sendPacket(const Packet& packet) {
@@ -80,7 +104,17 @@ bool ConnectionImpl::sendRawData(const std::vector<uint8_t>& data) {
         return false;
     }
 
+    if (!bev_) {
+        LOGE("[Connection] Cannot send raw data: invalid bufferevent");
+        return false;
+    }
+
     auto output = bufferevent_get_output(bev_.get());
+    if (!output) {
+        LOGE("[Connection] Failed to get output buffer");
+        return false;
+    }
+    
     auto result = evbuffer_add(output, data.data(), data.size());
     if (result == 0) {
         LOGV("[Connection] Successfully queued %zu bytes", data.size());
@@ -149,20 +183,34 @@ void ConnectionImpl::onConnect() {
 
     // Set up the callbacks now that we're connected
     if (bev_) {
-        bufferevent_setcb(bev_.get(), readCallback, writeCallback, eventCallback, this);
-        bufferevent_enable(bev_.get(), EV_READ | EV_WRITE);
-        LOGI("[Connection] Callbacks set up and events enabled");
+        try {
+            bufferevent_setcb(bev_.get(), readCallback, writeCallback, eventCallback, this);
+            bufferevent_enable(bev_.get(), EV_READ | EV_WRITE);
+            LOGI("[Connection] Callbacks set up and events enabled");
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception setting up callbacks: %s", e.what());
+            connected_ = false;
+            state_ = ConnectionState::Failed;
+            return;
+        }
     }
 
     // Call the connected handler if set
     if (connected_handler_) {
-        connected_handler_();
+        try {
+            connected_handler_();
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception in connected handler: %s", e.what());
+        }
     }
 }
 
 void ConnectionImpl::onError(short events) {
     state_ = ConnectionState::Failed;
     connected_ = false;
+    
+    // Clear callbacks first to prevent re-entrancy
+    clearCallbacks();
     
     if (error_handler_) {
         int err = EVUTIL_SOCKET_ERROR();
@@ -186,31 +234,41 @@ void ConnectionImpl::onError(short events) {
 void ConnectionImpl::onClose() {
     LOGI("[Connection] Connection closed");
     
-    // Set state to closed
+    // Set state to closed first
     state_ = ConnectionState::Closed;
     connected_ = false;
     
-    // Notify about disconnection
-    if (disconnect_handler_) {
-        disconnect_handler_();
-    }
+    // Store disconnect handler before clearing callbacks
+    auto disconnect_handler = disconnect_handler_;
     
-    // Clean up the connection
+    // Clear callbacks before calling handlers to prevent re-entrancy
     clearCallbacks();
+    
+    // Notify about disconnection after clearing callbacks
+    if (disconnect_handler) {
+        disconnect_handler();
+    }
 }
 
 void ConnectionImpl::clearCallbacks() {
     if (bev_) {
-        // Disable all events first
-        bufferevent_disable(bev_.get(), EV_READ | EV_WRITE);
-        // Clear all callbacks
-        bufferevent_setcb(bev_.get(), nullptr, nullptr, nullptr, nullptr);
+        try {
+            // Disable all events first
+            bufferevent_disable(bev_.get(), EV_READ | EV_WRITE);
+            // Clear all callbacks
+            bufferevent_setcb(bev_.get(), nullptr, nullptr, nullptr, nullptr);
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception clearing callbacks: %s", e.what());
+        } catch (...) {
+            LOGE("[Connection] Unknown exception clearing callbacks");
+        }
     }
     
     // Clear handler functions
     packet_handler_ = nullptr;
     error_handler_ = nullptr;
     disconnect_handler_ = nullptr;
+    connected_handler_ = nullptr;
     connected_ = false;
     state_ = ConnectionState::Closed;  // Update state when clearing callbacks
 }
@@ -225,7 +283,9 @@ void ConnectionImpl::disconnect() {
 
         // Now it's safe to free the bufferevent
         if (bev_) {
-            bufferevent_free(bev_.release());
+            // Release the bufferevent without calling bufferevent_free
+            // Let the unique_ptr handle the cleanup
+            bev_.reset();
         }
     }
 }
@@ -240,29 +300,51 @@ uint16_t ConnectionImpl::getRemotePort() const {
 
 void ConnectionImpl::onRead() {
     LOGV("[Connection] onRead called");
+    
+    // Additional safety check
+    if (!bev_ || !isConnected()) {
+        LOGV("[Connection] onRead called on invalid connection");
+        return;
+    }
+    
     auto input = bufferevent_get_input(bev_.get());
+    if (!input) {
+        LOGE("[Connection] Failed to get input buffer");
+        return;
+    }
+    
     size_t len = evbuffer_get_length(input);
     
     LOGV("[Connection] Available data: %zu bytes", len);
     
     if (len > 0) {
-        std::vector<uint8_t> data(len);
-        if (evbuffer_remove(input, data.data(), len) != static_cast<int>(len)) {
-            LOGE("[Connection] Failed to read data from input buffer");
-            return;
-        }
-        LOGV("[Connection] Read %zu bytes from buffer", len);
-        
-        auto packets = framer_.processData(data.data(), data.size());
-        LOGV("[Connection] Processed %zu complete packets", packets.size());
-        
-        for (const auto& packet : packets) {
-            LOGV("[Connection] Processing packet of size %zu bytes", packet.size());
-            if (packet_handler_) {
-                packet_handler_(packet);
-            } else {
-                LOGW("[Connection] Warning: No packet handler set");
+        try {
+            std::vector<uint8_t> data(len);
+            if (evbuffer_remove(input, data.data(), len) != static_cast<int>(len)) {
+                LOGE("[Connection] Failed to read data from input buffer");
+                return;
             }
+            LOGV("[Connection] Read %zu bytes from buffer", len);
+            
+            auto packets = framer_.processData(data.data(), data.size());
+            LOGV("[Connection] Processed %zu complete packets", packets.size());
+            
+            for (const auto& packet : packets) {
+                LOGV("[Connection] Processing packet of size %zu bytes", packet.size());
+                if (packet_handler_) {
+                    try {
+                        packet_handler_(packet);
+                    } catch (const std::exception& e) {
+                        LOGE("[Connection] Exception in packet handler: %s", e.what());
+                    }
+                } else {
+                    LOGW("[Connection] Warning: No packet handler set");
+                }
+            }
+        } catch (const std::exception& e) {
+            LOGE("[Connection] Exception in onRead: %s", e.what());
+        } catch (...) {
+            LOGE("[Connection] Unknown exception in onRead");
         }
     }
 }

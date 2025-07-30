@@ -9,11 +9,18 @@
 #include <stdexcept>
 #include <thread>
 #include <atomic>
+#include <unordered_set>
+#include <mutex>
 #include "connection.h"  // For ConnectionState enum
 
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#elif __linux__
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 #endif
 
 namespace netp {
@@ -49,6 +56,32 @@ private:
     // Prevent copying
     WinSockInitializer(const WinSockInitializer&) = delete;
     WinSockInitializer& operator=(const WinSockInitializer&) = delete;
+};
+#elif __linux__
+// Linux thread initialization helper
+class LinuxThreadInitializer {
+public:
+    static LinuxThreadInitializer& instance() {
+        static LinuxThreadInitializer inst;
+        return inst;
+    }
+
+    // Call this before any network operations
+    static void ensureInitialized() {
+        instance();
+    }
+
+private:
+    LinuxThreadInitializer() {
+        // Initialize libevent for pthreads on Linux
+        if (evthread_use_pthreads() < 0) {
+            throw std::runtime_error("Failed to initialize libevent pthread support");
+        }
+    }
+
+    // Prevent copying
+    LinuxThreadInitializer(const LinuxThreadInitializer&) = delete;
+    LinuxThreadInitializer& operator=(const LinuxThreadInitializer&) = delete;
 };
 #endif
 
@@ -136,6 +169,9 @@ private:
     static void acceptErrorCallback(struct evconnlistener* listener,
                                   void* ctx);
 
+    void removeConnection(ConnectionPtr conn);
+    void removeConnectionByPtr(ConnectionImpl* conn_ptr);
+
     EventBasePtr base_;
     ListenerPtr listener_;
     ConnectionHandler connection_handler_;
@@ -143,6 +179,10 @@ private:
     bool running_;
     uint16_t port_;
     std::thread event_thread_;  // Thread for running the event loop
+    
+    // Connection tracking
+    std::unordered_set<ConnectionPtr> active_connections_;
+    mutable std::mutex connections_mutex_;
 };
 
 // Client implementation
