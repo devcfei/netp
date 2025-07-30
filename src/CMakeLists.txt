@@ -25,6 +25,13 @@ if(WIN32)
     target_compile_definitions(netp PUBLIC _WIN32)
 endif()
 
+# Add debug/release compile definitions
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(netp PRIVATE DEBUG_BUILD)
+else()
+    target_compile_definitions(netp PRIVATE RELEASE_BUILD)
+endif()
+
 # Include directories
 target_include_directories(netp
     PUBLIC

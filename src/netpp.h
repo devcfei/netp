@@ -35,13 +35,23 @@
 #include "netp.h"
 #include "netpimpl.h"
 
-
-
-#define LOGF(...)
-#define LOGE(...)
-#define LOGW(...)
-#define LOGI(...)
-#define LOGV(...)
-#define ASSERT
+// Logging macros - enabled in debug builds, disabled in release builds
+#ifdef DEBUG_BUILD
+    // Debug build - logging enabled
+    #define LOGF(...) fprintf(stderr, "[FATAL] " __VA_ARGS__)
+    #define LOGE(...) fprintf(stderr, "[ERROR] " __VA_ARGS__)
+    #define LOGW(...) fprintf(stderr, "[WARN]  " __VA_ARGS__)
+    #define LOGI(...) fprintf(stderr, "[INFO]  " __VA_ARGS__)
+    #define LOGV(...) fprintf(stderr, "[VERB]  " __VA_ARGS__)
+    #define ASSERT(condition) if(!(condition)) { fprintf(stderr, "[ASSERT] Assertion failed: %s, file: %s, line: %d\n", #condition, __FILE__, __LINE__); abort(); }
+#else
+    // Release build - logging disabled
+    #define LOGF(...)
+    #define LOGE(...)
+    #define LOGW(...)
+    #define LOGI(...)
+    #define LOGV(...)
+    #define ASSERT(condition)
+#endif
 
 

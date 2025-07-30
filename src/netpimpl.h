@@ -7,8 +7,8 @@
 #include <event2/listener.h>
 #include <event2/thread.h>
 #include <stdexcept>
-#include <iostream>
 #include <thread>
+#include <atomic>
 #include "connection.h"  // For ConnectionState enum
 
 #ifdef _WIN32
@@ -35,20 +35,15 @@ public:
 
 private:
     WinSockInitializer() {
-        std::cout << "[WinSockInitializer] Initializing WSA..." << std::endl;
         WSADATA wsaData;
         int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
         if (result != 0) {
-            std::cerr << "[WinSockInitializer] WSAStartup failed with error: " << result << std::endl;
             throw std::runtime_error("WSAStartup failed: " + std::to_string(result));
         }
-        std::cout << "[WinSockInitializer] WSA initialized successfully" << std::endl;
     }
 
     ~WinSockInitializer() {
-        std::cout << "[WinSockInitializer] Cleaning up WSA..." << std::endl;
         WSACleanup();
-        std::cout << "[WinSockInitializer] WSA cleanup completed" << std::endl;
     }
 
     // Prevent copying
@@ -169,6 +164,7 @@ private:
     std::string host_;
     uint16_t port_;
     std::thread event_thread_;  // Add thread member
+    std::atomic<bool> event_thread_running_;  // Track if event thread is running
 };
 
 } // namespace impl

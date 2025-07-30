@@ -1,6 +1,25 @@
 cmake_minimum_required(VERSION 3.10)
 project(netp-project)
 
+# Set default build type to Release if not specified
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Build type validation
+if(NOT CMAKE_BUILD_TYPE MATCHES "^(Debug|Release|RelWithDebInfo|MinSizeRel)$")
+    message(FATAL_ERROR "CMAKE_BUILD_TYPE must be one of: Debug, Release, RelWithDebInfo, MinSizeRel")
+endif()
+
+# Set compile definitions based on build type
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(DEBUG_BUILD)
+    message(STATUS "Building in DEBUG mode - logging enabled")
+else()
+    add_compile_definitions(RELEASE_BUILD)
+    message(STATUS "Building in RELEASE mode - logging disabled")
+endif()
+
 option(BUILD_SAMPLES "Build Samples" ON)
 
 # externel build

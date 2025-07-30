@@ -1,6 +1,6 @@
 #include <netpimpl.h>
+#include <netpp.h>
 #include <thread>
-#include <iostream>
 #include <cstring>
 #include <cassert>
 
@@ -16,21 +16,21 @@ namespace impl {
 
 // Static callbacks for libevent
 static void readCallback(struct bufferevent* bev, void* ctx) {
-    std::cout << "[Connection] readCallback triggered" << std::endl;
+    LOGV("[Connection] readCallback triggered");
     auto conn = static_cast<ConnectionImpl*>(ctx);
     conn->onRead();
 }
 
 static void writeCallback(struct bufferevent* bev, void* ctx) {
-    std::cout << "[Connection] writeCallback triggered" << std::endl;
+    LOGV("[Connection] writeCallback triggered");
 }
 
 static void eventCallback(struct bufferevent* bev, short events, void* ctx) {
-    std::cout << "[Connection] eventCallback triggered with events: 0x" << std::hex << events << std::dec << std::endl;
+    LOGV("[Connection] eventCallback triggered with events: 0x%x", events);
     auto conn = static_cast<ConnectionImpl*>(ctx);
     
     if (events & BEV_EVENT_EOF) {
-        std::cout << "[Connection] EOF received" << std::endl;
+        LOGI("[Connection] EOF received");
         conn->onClose();
     } else {
         conn->onError(events);
@@ -44,7 +44,7 @@ ConnectionImpl::ConnectionImpl(event_base* base, bufferevent* bev)
     , remote_port_(0)
     , state_(ConnectionState::Closed)
 {
-    std::cout << "[Connection] Creating new connection" << std::endl;
+    LOGI("[Connection] Creating new connection");
 
 #ifdef _WIN32
     WinSockInitializer::ensureInitialized();
@@ -61,33 +61,33 @@ ConnectionImpl::~ConnectionImpl() {
 
 bool ConnectionImpl::sendPacket(const Packet& packet) {
     if (!isConnected()) {
-        std::cerr << "[Connection] Cannot send packet: not connected" << std::endl;
+        LOGE("[Connection] Cannot send packet: not connected");
         return false;
     }
 
     auto data = packet.serialize();
-    std::cout << "[Connection] Serialized packet data size: " << data.size() << " bytes" << std::endl;
+    LOGV("[Connection] Serialized packet data size: %zu bytes", data.size());
     
     auto framed_data = PacketFramer::framePacket(data);
-    std::cout << "[Connection] Framed packet size: " << framed_data.size() << " bytes" << std::endl;
+    LOGV("[Connection] Framed packet size: %zu bytes", framed_data.size());
     
     return sendRawData(framed_data);
 }
 
 bool ConnectionImpl::sendRawData(const std::vector<uint8_t>& data) {
     if (!isConnected()) {
-        std::cerr << "[Connection] Cannot send raw data: not connected" << std::endl;
+        LOGE("[Connection] Cannot send raw data: not connected");
         return false;
     }
 
     auto output = bufferevent_get_output(bev_.get());
     auto result = evbuffer_add(output, data.data(), data.size());
     if (result == 0) {
-        std::cout << "[Connection] Successfully queued " << data.size() << " bytes" << std::endl;
+        LOGV("[Connection] Successfully queued %zu bytes", data.size());
         // Force a write attempt
         bufferevent_flush(bev_.get(), EV_WRITE, BEV_FLUSH);
     } else {
-        std::cerr << "[Connection] Failed to queue data, error: " << result << std::endl;
+        LOGE("[Connection] Failed to queue data, error: %d", result);
     }
     return (result == 0);
 }
@@ -114,6 +114,7 @@ bool ConnectionImpl::isConnected() const {
 
 void ConnectionImpl::onConnect() {
     connected_ = true;
+    state_ = ConnectionState::Connected;
 
     // Get peer info
     struct sockaddr_storage addr;
@@ -124,7 +125,7 @@ void ConnectionImpl::onConnect() {
 #endif
 
     evutil_socket_t fd = bufferevent_getfd(bev_.get());
-    std::cout << "[Connection] Socket FD: " << fd << std::endl;
+    LOGV("[Connection] Socket FD: %d", fd);
 
     if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&addr), &addr_len) == 0) {
         char host[NI_MAXHOST];
@@ -134,14 +135,14 @@ void ConnectionImpl::onConnect() {
                     NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
             remote_addr_ = host;
             remote_port_ = static_cast<uint16_t>(std::stoi(service));
-            std::cout << "[Connection] Peer info: " << remote_addr_ << ":" << remote_port_ << std::endl;
+            LOGI("[Connection] Peer info: %s:%d", remote_addr_.c_str(), remote_port_);
         } else {
-            std::cerr << "[Connection] Failed to get peer name info" << std::endl;
+            LOGE("[Connection] Failed to get peer name info");
             remote_addr_ = "unknown";
             remote_port_ = 0;
         }
     } else {
-        std::cerr << "[Connection] Failed to get peer name" << std::endl;
+        LOGE("[Connection] Failed to get peer name");
         remote_addr_ = "unknown";
         remote_port_ = 0;
     }
@@ -150,7 +151,7 @@ void ConnectionImpl::onConnect() {
     if (bev_) {
         bufferevent_setcb(bev_.get(), readCallback, writeCallback, eventCallback, this);
         bufferevent_enable(bev_.get(), EV_READ | EV_WRITE);
-        std::cout << "[Connection] Callbacks set up and events enabled" << std::endl;
+        LOGI("[Connection] Callbacks set up and events enabled");
     }
 
     // Call the connected handler if set
@@ -160,6 +161,9 @@ void ConnectionImpl::onConnect() {
 }
 
 void ConnectionImpl::onError(short events) {
+    state_ = ConnectionState::Failed;
+    connected_ = false;
+    
     if (error_handler_) {
         int err = EVUTIL_SOCKET_ERROR();
         std::string error_msg = "Connection error: ";
@@ -169,10 +173,6 @@ void ConnectionImpl::onError(short events) {
         } else {
             error_msg += std::to_string(err);
         }
-        
-        // Set state to Failed before calling error handler
-        state_ = ConnectionState::Failed;
-        connected_ = false;
         
         error_handler_(error_msg);
     }
@@ -184,7 +184,7 @@ void ConnectionImpl::onError(short events) {
 }
 
 void ConnectionImpl::onClose() {
-    std::cout << "[Connection] Connection closed" << std::endl;
+    LOGI("[Connection] Connection closed");
     
     // Set state to closed
     state_ = ConnectionState::Closed;
@@ -218,6 +218,7 @@ void ConnectionImpl::clearCallbacks() {
 void ConnectionImpl::disconnect() {
     if (connected_) {
         connected_ = false;
+        state_ = ConnectionState::Closed;
 
         // Clear all callbacks first
         clearCallbacks();
@@ -238,29 +239,29 @@ uint16_t ConnectionImpl::getRemotePort() const {
 }
 
 void ConnectionImpl::onRead() {
-    std::cout << "[Connection] onRead called" << std::endl;
+    LOGV("[Connection] onRead called");
     auto input = bufferevent_get_input(bev_.get());
     size_t len = evbuffer_get_length(input);
     
-    std::cout << "[Connection] Available data: " << len << " bytes" << std::endl;
+    LOGV("[Connection] Available data: %zu bytes", len);
     
     if (len > 0) {
         std::vector<uint8_t> data(len);
         if (evbuffer_remove(input, data.data(), len) != static_cast<int>(len)) {
-            std::cerr << "[Connection] Failed to read data from input buffer" << std::endl;
+            LOGE("[Connection] Failed to read data from input buffer");
             return;
         }
-        std::cout << "[Connection] Read " << len << " bytes from buffer" << std::endl;
+        LOGV("[Connection] Read %zu bytes from buffer", len);
         
         auto packets = framer_.processData(data.data(), data.size());
-        std::cout << "[Connection] Processed " << packets.size() << " complete packets" << std::endl;
+        LOGV("[Connection] Processed %zu complete packets", packets.size());
         
         for (const auto& packet : packets) {
-            std::cout << "[Connection] Processing packet of size " << packet.size() << " bytes" << std::endl;
+            LOGV("[Connection] Processing packet of size %zu bytes", packet.size());
             if (packet_handler_) {
                 packet_handler_(packet);
             } else {
-                std::cerr << "[Connection] Warning: No packet handler set" << std::endl;
+                LOGW("[Connection] Warning: No packet handler set");
             }
         }
     }

@@ -1,6 +1,6 @@
 #include <netpimpl.h>
+#include <netpp.h>
 #include <cstring>
-#include <iostream>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -15,19 +15,19 @@ std::vector<std::vector<uint8_t>> PacketFramer::processData(const uint8_t* data,
     
     // Add new data to buffer
     buffer_.insert(buffer_.end(), data, data + length);
-    std::cout << "[PacketFramer] Added " << length << " bytes to buffer, total buffer size: " << buffer_.size() << std::endl;
+    LOGV("[PacketFramer] Added %zu bytes to buffer, total buffer size: %zu", length, buffer_.size());
     
     // Process complete packets
     while (buffer_.size() >= HEADER_SIZE) {
         // Read header
         PacketHeader header;
         std::memcpy(&header.data_length, buffer_.data(), HEADER_SIZE);
-        std::cout << "[PacketFramer] Processing packet with total length: " << header.data_length << std::endl;
+        LOGV("[PacketFramer] Processing packet with total length: %u", header.data_length);
         
         // Check if we have a complete packet
         // Note: header.data_length already includes the header size
         if (buffer_.size() >= header.data_length) {
-            std::cout << "[PacketFramer] Found complete packet of size " << header.data_length << " bytes" << std::endl;
+            LOGV("[PacketFramer] Found complete packet of size %u bytes", header.data_length);
             // Extract packet data (excluding header)
             std::vector<uint8_t> packet_data(
                 buffer_.begin() + HEADER_SIZE,
@@ -37,9 +37,9 @@ std::vector<std::vector<uint8_t>> PacketFramer::processData(const uint8_t* data,
             
             // Remove processed packet from buffer
             buffer_.erase(buffer_.begin(), buffer_.begin() + header.data_length);
-            std::cout << "[PacketFramer] Removed processed packet, remaining buffer size: " << buffer_.size() << std::endl;
+            LOGV("[PacketFramer] Removed processed packet, remaining buffer size: %zu", buffer_.size());
         } else {
-            std::cout << "[PacketFramer] Incomplete packet: have " << buffer_.size() << " bytes, need " << header.data_length << " bytes" << std::endl;
+            LOGV("[PacketFramer] Incomplete packet: have %zu bytes, need %u bytes", buffer_.size(), header.data_length);
             // Not enough data for complete packet
             break;
         }
@@ -53,12 +53,12 @@ std::vector<uint8_t> PacketFramer::framePacket(const std::vector<uint8_t>& data)
     
     // Write header with total length (header + data)
     uint32_t length = static_cast<uint32_t>(HEADER_SIZE + data.size());
-    std::cout << "[PacketFramer] Framing packet with total size: " << length << std::endl;
+    LOGV("[PacketFramer] Framing packet with total size: %u", length);
     std::memcpy(framed_data.data(), &length, HEADER_SIZE);
     
     // Write data
     std::memcpy(framed_data.data() + HEADER_SIZE, data.data(), data.size());
-    std::cout << "[PacketFramer] Created framed packet of total size: " << framed_data.size() << " bytes" << std::endl;
+    LOGV("[PacketFramer] Created framed packet of total size: %zu bytes", framed_data.size());
     
     return framed_data;
 }

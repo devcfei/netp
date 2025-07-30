@@ -61,8 +61,9 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
                        BenchmarkStats& stats) {
     auto client = netp::createClient();
     bool should_run = true;
-    const auto reconnect_delay = std::chrono::seconds(5);
+    const auto reconnect_delay = std::chrono::seconds(1);  // Reduced delay for faster reconnection
     int reconnect_count = 0;
+    const int max_reconnect_attempts = 10;  // Limit reconnection attempts
     
     auto end_time = std::chrono::steady_clock::now() + duration;
     
@@ -92,6 +93,9 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
                 log("Benchmark client disconnected from server");
             });
 
+            // Wait a moment for connection to stabilize
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
             while (std::chrono::steady_clock::now() < end_time && client->isConnected()) {
                 std::string msg = generateRandomString(msg_size_dist(gen));
                 BenchmarkPacket packet(msg);
@@ -107,8 +111,17 @@ void runBenchmarkClient(const std::string& host, uint16_t port,
                 // Small delay to prevent overwhelming the server
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
+            
+            // Disconnect cleanly before reconnecting
+            client->disconnect();
+            
         } else {
             reconnect_count++;
+            if (reconnect_count > max_reconnect_attempts) {
+                log("Benchmark client exceeded maximum reconnection attempts, stopping");
+                break;
+            }
+            
             log("Benchmark client connection attempt " + std::to_string(reconnect_count) + 
                 " failed, retrying in " + std::to_string(reconnect_delay.count()) + " seconds...");
             std::this_thread::sleep_for(reconnect_delay);

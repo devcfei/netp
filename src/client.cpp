@@ -2,6 +2,7 @@
 #include <thread>
 #include <cstring>
 #include "connection.h"
+#include "netpp.h"
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -17,6 +18,7 @@ namespace impl {
 ClientImpl::ClientImpl()
     : base_(nullptr, event_base_free)  // Initialize with null ptr but specify deleter
     , port_(0)
+    , event_thread_running_(false)
 {
 #ifdef _WIN32
     // Initialize WinSock first
@@ -24,7 +26,7 @@ ClientImpl::ClientImpl()
     
     // Initialize libevent for Windows threads
     if (evthread_use_windows_threads() < 0) {
-        std::cerr << "[Client] Failed to initialize libevent thread support" << std::endl;
+        LOGE("[Client] Failed to initialize libevent thread support");
         throw std::runtime_error("Failed to initialize libevent thread support");
     }
 #endif
@@ -39,20 +41,19 @@ ClientImpl::ClientImpl()
 ClientImpl::~ClientImpl() {
     disconnect();
     
-    // Add a small delay to ensure event loop has exited
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Wait for event thread to finish
+    if (event_thread_.joinable()) {
+        event_thread_.join();
+    }
 }
 
 bool ClientImpl::connect(const std::string& host, uint16_t port) {
-    // Only allow connection if we don't have a connection or if previous connection failed
-    if (connection_ && connection_->getState() != ConnectionState::Failed) {
-        return false;
-    }
-
-    // Clean up any existing failed connection
-    if (connection_) {
-        connection_->clearCallbacks();
-        connection_.reset();
+    // Disconnect any existing connection first
+    disconnect();
+    
+    // Wait for event thread to finish if it's running
+    if (event_thread_.joinable()) {
+        event_thread_.join();
     }
 
     host_ = host;
@@ -66,6 +67,7 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     );
 
     if (!bev) {
+        LOGE("[Client] Failed to create bufferevent");
         return false;
     }
 
@@ -82,6 +84,7 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     sin.sin_port = htons(port);
 
     if (inet_pton(AF_INET, host.c_str(), &sin.sin_addr) <= 0) {
+        LOGE("[Client] Failed to parse host address: %s", host.c_str());
         connection_.reset();
         return false;
     }
@@ -89,15 +92,19 @@ bool ClientImpl::connect(const std::string& host, uint16_t port) {
     if (bufferevent_socket_connect(bev,
                                  reinterpret_cast<struct sockaddr*>(&sin),
                                  sizeof(sin)) < 0) {
+        LOGE("[Client] Failed to initiate connection to %s:%d", host.c_str(), port);
         connection_.reset();
         return false;
     }
 
     // Start the event loop in a separate thread
+    event_thread_running_ = true;
     event_thread_ = std::thread([this]() {
+        LOGI("[Client] Starting event loop");
         event_base_dispatch(base_.get());
+        LOGI("[Client] Event loop finished");
+        event_thread_running_ = false;
     });
-    event_thread_.detach();  // Detach the thread to let it clean up on its own
 
     return true;
 }
@@ -113,6 +120,11 @@ void ClientImpl::disconnect() {
         // Clean up connection
         connection_.reset();
     }
+    
+    // Wait for event thread to finish
+    if (event_thread_.joinable()) {
+        event_thread_.join();
+    }
 }
 
 ConnectionPtr ClientImpl::getConnection() {
@@ -127,6 +139,7 @@ void ClientImpl::connectCallback(struct bufferevent* bev, short events, void* ct
     auto client = static_cast<ClientImpl*>(ctx);
 
     if (events & BEV_EVENT_CONNECTED) {
+        LOGI("[Client] Connection established to %s:%d", client->host_.c_str(), client->port_);
         // Now that we're actually connected, mark the connection as established
         if (client->connection_) {
             // Let the connection set up its callbacks and mark itself as connected
@@ -134,6 +147,8 @@ void ClientImpl::connectCallback(struct bufferevent* bev, short events, void* ct
         }
     } else if (events & BEV_EVENT_ERROR) {
         int err = EVUTIL_SOCKET_ERROR();
+        LOGE("[Client] Connection error to %s:%d: %d", client->host_.c_str(), client->port_, err);
+        
         if (client->connection_) {
             // Report the error through the connection's error handler
             client->connection_->onError(events);
@@ -148,6 +163,7 @@ void ClientImpl::connectCallback(struct bufferevent* bev, short events, void* ct
         }
     } else {
         // Other events like EOF
+        LOGI("[Client] Connection event: 0x%x", events);
         if (client->connection_) {
             client->connection_->setState(ConnectionState::Failed);
             
