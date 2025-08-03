@@ -14,6 +14,9 @@ set(NETP_SOURCES
 # Create static library
 add_library(netp STATIC ${NETP_SOURCES})
 
+# Add dependency on libevent
+add_dependencies(netp libevent-2.1.12)
+
 # Set C++ standard
 set_target_properties(netp PROPERTIES
     CXX_STANDARD 17

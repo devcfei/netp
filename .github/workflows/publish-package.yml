@@ -1,0 +1,152 @@
+name: Publish Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: jwlawson/actions-setup-cmake@v1.13
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake git
+
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Create build directory
+      run: mkdir -p build
+
+    - name: Configure CMake
+      run: |
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install/Release
+
+    - name: Build library
+      run: |
+        cd build
+        cmake --build . --config Release --parallel
+
+    - name: Install library
+      run: |
+        cd build
+        cmake --install .
+
+    - name: Create package archive
+      run: |
+        cd install/Release
+        tar -czf ../../netp-v${{ steps.get_version.outputs.VERSION }}-linux-x64.tar.gz include/ lib/
+
+    - name: Create package info
+      run: |
+        cat > package-info.json << EOF
+        {
+          "name": "netp",
+          "version": "${{ steps.get_version.outputs.VERSION }}",
+          "description": "Network Packet Communication Library",
+          "author": "${{ github.repository_owner }}",
+          "license": "MIT",
+          "homepage": "https://github.com/${{ github.repository }}",
+          "repository": {
+            "type": "git",
+            "url": "https://github.com/${{ github.repository }}.git"
+          },
+          "platform": "linux-x64",
+          "build_type": "Release",
+          "dependencies": {
+            "libevent": ">=2.1.0"
+          }
+        }
+        EOF
+
+    - name: Upload to GitHub Packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: netp-v${{ steps.get_version.outputs.VERSION }}-linux-x64
+        path: |
+          netp-v${{ steps.get_version.outputs.VERSION }}-linux-x64.tar.gz
+          package-info.json
+        retention-days: 90
+
+  publish-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: jwlawson/actions-setup-cmake@v1.13
+
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Create build directory
+      run: mkdir -p build
+
+    - name: Configure CMake
+      run: |
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install/Release
+
+    - name: Build library
+      run: |
+        cd build
+        cmake --build . --config Release --parallel
+
+    - name: Install library
+      run: |
+        cd build
+        cmake --install . --config Release
+
+    - name: Create package archive
+      run: |
+        cd install/Release
+        Compress-Archive -Path include,lib -DestinationPath ../../netp-v${{ steps.get_version.outputs.VERSION }}-windows-x64.zip
+
+    - name: Create package info
+      run: |
+        @"
+        {
+          "name": "netp",
+          "version": "${{ steps.get_version.outputs.VERSION }}",
+          "description": "Network Packet Communication Library",
+          "author": "${{ github.repository_owner }}",
+          "license": "MIT",
+          "homepage": "https://github.com/${{ github.repository }}",
+          "repository": {
+            "type": "git",
+            "url": "https://github.com/${{ github.repository }}.git"
+          },
+          "platform": "windows-x64",
+          "build_type": "Release",
+          "dependencies": {
+            "libevent": ">=2.1.0"
+          }
+        }
+        "@ | Out-File -FilePath "package-info.json" -Encoding UTF8
+
+    - name: Upload to GitHub Packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: netp-v${{ steps.get_version.outputs.VERSION }}-windows-x64
+        path: |
+          netp-v${{ steps.get_version.outputs.VERSION }}-windows-x64.zip
+          package-info.json
+        retention-days: 90 

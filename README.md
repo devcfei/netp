@@ -136,6 +136,53 @@ install\Debug\bin\netp_echo.exe server
 install\Debug\bin\netp_echo.exe client
 ```
 
+## GitHub Actions
+
+This project includes GitHub Actions workflows for automated building, testing, and releasing:
+
+### Workflows
+
+1. **Build and Test** (`.github/workflows/build-and-test.yml`)
+   - Runs on every push to main/master and pull requests
+   - Builds the library on Windows and Linux
+   - Runs basic tests to ensure functionality
+   - Uploads build artifacts for inspection
+
+2. **Build and Release** (`.github/workflows/build-and-release.yml`)
+   - Triggers when you push a tag starting with `v` (e.g., `v1.0.0`)
+   - Builds Release and Debug versions for Windows and Linux
+   - Creates GitHub releases with downloadable packages
+   - Can also be triggered manually via workflow dispatch
+
+3. **Publish Package** (`.github/workflows/publish-package.yml`)
+   - Creates package archives for distribution
+   - Useful for integration with package managers
+
+### Creating a Release
+
+To create a new release:
+
+1. **Tag-based release:**
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+2. **Manual release:**
+   - Go to Actions tab in GitHub
+   - Select "Build and Release" workflow
+   - Click "Run workflow"
+   - Enter version number (e.g., 1.0.0)
+   - Click "Run workflow"
+
+### Release Artifacts
+
+Each release includes:
+- Pre-built libraries for Windows and Linux
+- Both Debug and Release builds
+- Header files and library files
+- Installation instructions
+
 ## License
 
 MIT License
